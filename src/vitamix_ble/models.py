@@ -49,6 +49,13 @@ class DeviceInfo:
         return self.panel is PanelType.OLD_B or self.model is not None
 
     @property
+    def can_cancel(self) -> bool:
+        """C-panels accept cancel only with known, non-1.4 Thread firmware."""
+        if self.panel is PanelType.C:
+            return "thread" in self.firmware and not self.thread_1_4
+        return self.supported
+
+    @property
     def has_telemetry(self) -> bool:
         """Whether sleep, container and motor state can be polled."""
         return self.supported and self.panel is not PanelType.OLD_B
