@@ -7,6 +7,7 @@ import pytest
 from vitamix_ble.protocol import (
     PacketStatus,
     ProtocolError,
+    ReplyStatusError,
     decode_read_response,
     decode_write_response,
     encode_read,
@@ -69,6 +70,11 @@ class TestEncodeWrite:
         with pytest.raises(ValueError):
             encode_write(0x0200, [])
 
+    def test_write_fits_default_mtu_payload(self) -> None:
+        assert len(encode_write(0x3202, [0] * 7)) == 19
+        with pytest.raises(ValueError):
+            encode_write(0x3202, [0] * 8)
+
     def test_value_out_of_range_rejected(self) -> None:
         with pytest.raises(ValueError):
             encode_write(0x0200, [0x10000])
@@ -100,9 +106,26 @@ class TestDecodeReadResponse:
         with pytest.raises(ProtocolError):
             decode_read_response(bytes.fromhex("0200"), 1)
 
-    def test_wrong_function_code_rejected(self) -> None:
+    def test_first_byte_is_ignored(self) -> None:
+        # The official app never checks byte 0 of a read reply.
+        assert decode_read_response(bytes.fromhex("ab003412cdab"), 2) == ([0x1234, 0xABCD], 0)
+
+    @pytest.mark.parametrize("reply", ["020b", "020b0100", "0214"])
+    def test_named_error_status_raises(self, reply: str) -> None:
+        with pytest.raises(ReplyStatusError) as exc_info:
+            decode_read_response(bytes.fromhex(reply), 1)
+        assert exc_info.value.code == bytes.fromhex(reply)[1]
+
+    def test_unnamed_status_with_full_body_is_returned(self) -> None:
+        assert decode_read_response(bytes.fromhex("02070100"), 1) == ([1], 7)
+
+    def test_unnamed_status_without_body_rejected(self) -> None:
         with pytest.raises(ProtocolError):
-            decode_read_response(bytes.fromhex("01000100"), 1)
+            decode_read_response(bytes.fromhex("0207"), 1)
+
+    def test_overlong_response_rejected(self) -> None:
+        with pytest.raises(ProtocolError):
+            decode_read_response(bytes.fromhex("0200010002"), 1)
 
 
 class TestDecodeWriteResponse:

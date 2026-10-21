@@ -21,9 +21,10 @@ from bleak.backends.device import BLEDevice
 
 from .const import (
     CUSTOM_PROGRAM_MAX_STEPS,
-    DEFAULT_MTU,
+    DFU_MAGIC,
     MAX_SPEED,
     MAX_STEP_SECONDS,
+    MAX_WRITE_REGISTERS,
     MIN_SPEED,
     NOTIFY_CHARACTERISTIC_UUID,
     REG_CUSTOM_PROGRAM_BASE,
@@ -42,8 +43,10 @@ from .models import VitamixState
 from .protocol import (
     PacketStatus,
     ProtocolError,
+    ReplyStatusError,
     decode_read_response,
     decode_write_response,
+    describe_status,
     encode_read,
     encode_write,
 )
@@ -64,11 +67,26 @@ class VitamixTimeoutError(VitamixError):
     """Raised when a request does not produce a response in time."""
 
 
-class VitamixWriteRejectedError(VitamixError):
-    """Raised when the firmware returns a non-zero status for a write."""
+class VitamixRejectedError(VitamixError):
+    """Raised when the device answers a request with a failure status."""
+
+    def __init__(self, code: int, operation: str) -> None:
+        super().__init__(f"{operation} rejected, status {code}: {describe_status(code)}")
+        self.code = code
+
+
+class VitamixReadRejectedError(VitamixRejectedError):
+    """Raised when the device returns a named error status for a read."""
+
+    def __init__(self, code: int) -> None:
+        super().__init__(code, "read")
+
+
+class VitamixWriteRejectedError(VitamixRejectedError):
+    """Raised when the device returns a nonzero status for a write."""
 
     def __init__(self, status: PacketStatus) -> None:
-        super().__init__(f"write rejected, status=0x{status.code:02x}")
+        super().__init__(status.code, "write")
         self.status = status
 
 
@@ -161,14 +179,20 @@ class VitamixClient:
         """Read ``count`` consecutive 16-bit registers starting at ``register``."""
         client = self._require_client()
         request = encode_read(register, count, slave=self._slave)
-        async with self._lock:
-            self._drain_notifications()
-            await client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, request, response=True)
-            response = await self._wait_notification()
+        response = await self._exchange(client, request)
         try:
-            values, _status = decode_read_response(response, count)
+            values, status = decode_read_response(response, count)
+        except ReplyStatusError as exc:
+            raise VitamixReadRejectedError(exc.code) from exc
         except ProtocolError as exc:
             raise VitamixError(f"could not parse read response {response.hex()}: {exc}") from exc
+        if status:
+            _LOGGER.debug(
+                "read 0x%04x returned unnamed status %d with data %s",
+                register,
+                status,
+                response.hex(),
+            )
         return values
 
     async def read_register(self, register: int) -> int:
@@ -186,10 +210,7 @@ class VitamixClient:
         """
         client = self._require_client()
         request = encode_write(register, values, slave=self._slave)
-        async with self._lock:
-            self._drain_notifications()
-            await client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, request, response=True)
-            response = await self._wait_notification()
+        response = await self._exchange(client, request)
         status = decode_write_response(response)
         if not status.ok:
             raise VitamixWriteRejectedError(status)
@@ -306,13 +327,9 @@ class VitamixClient:
         # from a previous program can't leak into the next run.
         while len(payload) < CUSTOM_PROGRAM_MAX_STEPS * 2:
             payload.append(0)
-        # Default MTU only fits 9 u16s per write packet; chunk the upload.
-        # The firmware disassembly shows the official app issues one
-        # write per u16, but writing in MTU-sized batches is faster and
-        # equivalent on the wire.
-        batch = (DEFAULT_MTU - 5) // 2
-        for offset in range(0, len(payload), batch):
-            slice_ = payload[offset : offset + batch]
+        # Chunk to what fits in one default-MTU write.
+        for offset in range(0, len(payload), MAX_WRITE_REGISTERS):
+            slice_ = payload[offset : offset + MAX_WRITE_REGISTERS]
             await self.write_registers(REG_CUSTOM_PROGRAM_BASE + offset, slice_)
 
     async def commit_custom_program(self, step_count: int) -> PacketStatus:
@@ -484,6 +501,15 @@ class VitamixClient:
         if self._client is None or not self._client.is_connected:
             raise VitamixError("client is not connected")
         return self._client
+
+    async def _exchange(self, client: BleakClient, request: bytes) -> bytes:
+        """Send one request and return its reply; one request at a time."""
+        if request == DFU_MAGIC:
+            raise VitamixError("refusing to send the firmware-update magic")
+        async with self._lock:
+            self._drain_notifications()
+            await client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, request, response=True)
+            return await self._wait_notification()
 
     def _on_notify(self, _handle: int, data: bytearray) -> None:
         # Bleak calls this from a background task; queue.put_nowait is safe
