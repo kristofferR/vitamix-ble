@@ -40,11 +40,13 @@ Python 3.11+ is required.
 import asyncio
 from vitamix_ble import VitamixClient
 
+
 async def main() -> None:
     client = await VitamixClient.from_address("AA:BB:CC:DD:EE:FF")
     async with client as vmx:
         state = await vmx.read_state()
         print(state)
+
 
 asyncio.run(main())
 ```
