@@ -186,7 +186,7 @@ def decode_read_response(data: bytes, expected_count: int) -> tuple[list[int], i
         in request order) and the status byte.
 
     Raises:
-        ReplyStatusError: if a short reply carries only a nonzero status.
+        ReplyStatusError: if the reply is only a nonzero status, with no data.
         ProtocolError: if the payload is otherwise malformed.
     """
     if len(data) < 2:
@@ -199,7 +199,7 @@ def decode_read_response(data: bytes, expected_count: int) -> tuple[list[int], i
         # value alone cannot tell an error from a counter.
         values = [body[2 * i] | (body[2 * i + 1] << 8) for i in range(expected_count)]
         return values, status
-    if status:
+    if status and not body:
         raise ReplyStatusError(status)
     raise ProtocolError(f"wrong length: got {len(body)} value bytes, want {expected_count * 2}")
 

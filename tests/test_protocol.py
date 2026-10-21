@@ -116,6 +116,11 @@ class TestDecodeReadResponse:
             decode_read_response(bytes.fromhex(reply), 1)
         assert exc_info.value.code == bytes.fromhex(reply)[1]
 
+    def test_partial_body_is_malformed_not_rejected(self) -> None:
+        with pytest.raises(ProtocolError) as exc_info:
+            decode_read_response(bytes.fromhex("020b341200"), 1)
+        assert not isinstance(exc_info.value, ReplyStatusError)
+
     @pytest.mark.parametrize("status", [7, 11])
     def test_complete_reply_is_data_whatever_the_status(self, status: int) -> None:
         # Byte 1 ticks while the motor runs, so it can land on an error code.
