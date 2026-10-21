@@ -24,10 +24,12 @@ class FakeBlender:
         *,
         slaves: set[int],
         errors: dict[Register, int] | None = None,
+        silent: set[Register] | None = None,
     ) -> None:
         self.registers = registers
         self.slaves = slaves
         self.errors = errors or {}
+        self.silent = silent or set()
         self.requests: list[bytes] = []
         self.is_connected = True
         self.notify: Callable[[Any, bytearray], None] | None = None
@@ -55,7 +57,7 @@ class FakeBlender:
     async def write_gatt_char(self, _uuid: str, data: bytes, *, response: bool) -> None:
         self.requests.append(bytes(data))
         fn, slave, register, count = data[0], data[1], (data[2] << 8) | data[3], data[4]
-        if slave not in self.slaves:
+        if slave not in self.slaves or (slave, register) in self.silent:
             return
         if (slave, register) in self.errors:
             reply = bytes([fn, self.errors.pop((slave, register))])

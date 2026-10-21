@@ -86,6 +86,14 @@ async def test_probe_timeout_means_b_panel() -> None:
     assert info.model == "Ascent A2500"
 
 
+async def test_unanswered_optional_reads_are_omitted() -> None:
+    blender = b_panel()
+    blender.silent.add((0x67, 0x34FC))
+    info = await attach(blender, request_timeout=0.01).identify()
+    assert info.model == "Ascent A2500"
+    assert info.ble_power is None
+
+
 async def test_old_b_has_no_telemetry() -> None:
     blender = b_panel(model=0)
     vmx = attach(blender)

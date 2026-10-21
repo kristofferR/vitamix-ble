@@ -367,7 +367,7 @@ class VitamixClient:
     async def _optional_read(self, register: int, count: int, slave: int) -> tuple[int, ...] | None:
         try:
             return tuple(await self.read_registers(register, count, slave=slave))
-        except VitamixRejectedError as err:
+        except VitamixError as err:  # rejected, timed out or malformed
             _LOGGER.debug("optional read %#04x/%#06x failed: %s", slave, register, err)
             return None
 
