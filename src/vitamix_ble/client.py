@@ -1,9 +1,11 @@
 """Async :class:`VitamixClient` — a thin wrapper around :mod:`bleak`.
 
-Exchanges are correlated by sequencing them: only one outstanding
-request per connection, so the next notify is always the response.
-That matches the firmware behaviour we observed (no asynchronous
-push-notifications in normal operation; the official app polls).
+Replies carry no transaction id, so exchanges are correlated by
+sequencing them: one outstanding request per connection, and any
+notification that arrives while nothing is pending is dropped. After a
+timeout the next request waits briefly so a late reply cannot be taken
+as its answer. The official app does the same (it polls; the device
+sends no unsolicited notifications in normal operation).
 """
 
 from __future__ import annotations
@@ -11,13 +13,15 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from types import TracebackType
 from typing import Self
 
 from bleak import BleakClient, BleakScanner
+from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
+from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 
 from .const import (
     CUSTOM_PROGRAM_MAX_STEPS,
@@ -54,9 +58,13 @@ from .protocol import (
 _LOGGER = logging.getLogger(__name__)
 
 
-DEFAULT_REQUEST_TIMEOUT = 2.0
+# The official app waits 10 s for a reply once the panel is identified.
+DEFAULT_REQUEST_TIMEOUT = 10.0
 DEFAULT_SCAN_TIMEOUT = 30.0
 DEFAULT_CONNECT_TIMEOUT = 30.0
+DEFAULT_CONNECT_ATTEMPTS = 3
+# How long to ignore notifications after a timed-out request.
+LATE_REPLY_GRACE = 1.0
 
 
 class VitamixError(RuntimeError):
@@ -98,16 +106,29 @@ class VitamixClient:
         ble_device: BLEDevice | str,
         *,
         slave: int = SLAVE_CPANEL,
+        ble_device_callback: Callable[[], BLEDevice] | None = None,
         request_timeout: float = DEFAULT_REQUEST_TIMEOUT,
         connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
+        connect_attempts: int = DEFAULT_CONNECT_ATTEMPTS,
     ) -> None:
+        """Create a client.
+
+        Args:
+            ble_device: A discovered :class:`BLEDevice` (preferred; connects
+                with retries via ``bleak-retry-connector``) or an address.
+            ble_device_callback: Returns the freshest :class:`BLEDevice` for
+                retries, e.g. to switch to a closer Bluetooth proxy.
+        """
         self._ble_device = ble_device
         self._slave = slave
+        self._ble_device_callback = ble_device_callback
         self._request_timeout = request_timeout
         self._connect_timeout = connect_timeout
+        self._connect_attempts = connect_attempts
         self._client: BleakClient | None = None
         self._lock = asyncio.Lock()
-        self._notifications: asyncio.Queue[bytes] = asyncio.Queue()
+        self._pending: asyncio.Future[bytes] | None = None
+        self._quiet_until = 0.0
 
     # -- construction ------------------------------------------------------
 
@@ -150,11 +171,24 @@ class VitamixClient:
         """Open the BLE connection and subscribe to notifications."""
         if self._client is not None and self._client.is_connected:
             return
-        self._client = BleakClient(self._ble_device, timeout=self._connect_timeout)
-        await self._client.__aenter__()
-        await self._client.start_notify(NOTIFY_CHARACTERISTIC_UUID, self._on_notify)
-        # Give the device a moment to settle before the first request.
-        await asyncio.sleep(0.1)
+        if isinstance(self._ble_device, BLEDevice):
+            self._client = await establish_connection(
+                BleakClientWithServiceCache,
+                self._ble_device,
+                self._ble_device.name or self._ble_device.address,
+                max_attempts=self._connect_attempts,
+                ble_device_callback=self._ble_device_callback,
+            )
+        else:
+            self._client = BleakClient(self._ble_device, timeout=self._connect_timeout)
+            await self._client.connect()
+        try:
+            await self._client.start_notify(NOTIFY_CHARACTERISTIC_UUID, self._on_notify)
+            # Give the device a moment to settle before the first request.
+            await asyncio.sleep(0.1)
+        except BaseException:
+            await self.disconnect()
+            raise
 
     async def disconnect(self) -> None:
         """Stop notifications and close the BLE connection."""
@@ -165,7 +199,7 @@ class VitamixClient:
                 # bleak best-effort; some backends raise on stop_notify after
                 # the device has already disconnected.
                 await self._client.stop_notify(NOTIFY_CHARACTERISTIC_UUID)
-            await self._client.__aexit__(None, None, None)
+            await self._client.disconnect()
         finally:
             self._client = None
 
@@ -507,27 +541,28 @@ class VitamixClient:
         if request == DFU_MAGIC:
             raise VitamixError("refusing to send the firmware-update magic")
         async with self._lock:
-            self._drain_notifications()
-            await client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, request, response=True)
-            return await self._wait_notification()
-
-    def _on_notify(self, _handle: int, data: bytearray) -> None:
-        # Bleak calls this from a background task; queue.put_nowait is safe
-        # because the queue is unbounded.
-        self._notifications.put_nowait(bytes(data))
-
-    def _drain_notifications(self) -> None:
-        while True:
+            loop = asyncio.get_running_loop()
+            quiet = self._quiet_until - loop.time()
+            if quiet > 0:
+                await asyncio.sleep(quiet)
+            self._pending = loop.create_future()
             try:
-                self._notifications.get_nowait()
-            except asyncio.QueueEmpty:
-                return
+                await client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, request, response=True)
+                return await asyncio.wait_for(self._pending, timeout=self._request_timeout)
+            except TimeoutError as exc:
+                self._quiet_until = loop.time() + LATE_REPLY_GRACE
+                raise VitamixTimeoutError(
+                    f"no response to {request.hex()} within {self._request_timeout}s"
+                ) from exc
+            finally:
+                self._pending = None
 
-    async def _wait_notification(self) -> bytes:
-        try:
-            return await asyncio.wait_for(self._notifications.get(), timeout=self._request_timeout)
-        except TimeoutError as exc:
-            raise VitamixTimeoutError(f"no response within {self._request_timeout}s") from exc
+    def _on_notify(self, _characteristic: BleakGATTCharacteristic, data: bytearray) -> None:
+        pending = self._pending
+        if pending is None or pending.done():
+            _LOGGER.debug("dropping unsolicited or late notification %s", bytes(data).hex())
+            return
+        pending.set_result(bytes(data))
 
 
 @asynccontextmanager

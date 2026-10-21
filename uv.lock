@@ -1,9 +1,18 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.15'",
     "python_full_version < '3.15'",
+]
+
+[[package]]
+name = "aiooui"
+version = "0.1.11"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/db/e4/9ac5dc50921ebaffb625c55d4a057d337cca95fe2de3257649fea946e5e1/aiooui-0.1.11.tar.gz", hash = "sha256:737e1c605339a4ca3a860f0c60f1a35af0e256b44c93e8d0487ad62f3addeda8", size = 346204, upload-time = "2026-09-25T18:36:03.773Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4c/a8/5dd74c2dad63e66ea9b0caf67abaa6ce2ae84207346141b3952e6c703290/aiooui-0.1.11-py3-none-any.whl", hash = "sha256:531e808bba926d80213413202243754a125a100b3e7912dadb3cd3f921e1665d", size = 343372, upload-time = "2026-09-25T18:36:01.841Z" },
 ]
 
 [[package]]
@@ -70,6 +79,36 @@ wheels = [
 ]
 
 [[package]]
+name = "bleak-retry-connector"
+version = "4.7.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "bleak" },
+    { name = "bluetooth-adapters", marker = "sys_platform == 'linux'" },
+    { name = "dbus-fast", marker = "sys_platform == 'linux'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/75/8b/eb4a6668665f4e028a27b6036ad4816683c442158520f4ea2aad9ff775c3/bleak_retry_connector-4.7.1.tar.gz", hash = "sha256:9a5b07d2d7c5a9809b1769492d956604a7403870693be92754259d9eed5c177e", size = 19865, upload-time = "2026-09-14T18:37:54.658Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/90/ec/3b503e27e65872ac5ae213ee913b5509e461bb96b1d495ae2f72800c4a85/bleak_retry_connector-4.7.1-py3-none-any.whl", hash = "sha256:75b4cb3f69955123121d860348d2c43da638a0f3211f2cb6197d717edbd6f47f", size = 19830, upload-time = "2026-09-14T18:37:53.358Z" },
+]
+
+[[package]]
+name = "bluetooth-adapters"
+version = "2.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiooui" },
+    { name = "bleak" },
+    { name = "dbus-fast" },
+    { name = "uart-devices" },
+    { name = "usb-devices" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3d/e0/6f7d10ffd8e5b62fc0998c285991925aaa9b727521bede0e29a0b0084a94/bluetooth_adapters-2.4.0.tar.gz", hash = "sha256:e8a61935a867deb8af981e986bdf504c4398895ff254eac626790184a4fdd1e3", size = 17501, upload-time = "2026-05-26T14:28:58.347Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8c/ba/f11151a72f782bf24908c2b57163a2ff854024594c4ff3d04f1c47f40ed0/bluetooth_adapters-2.4.0-py3-none-any.whl", hash = "sha256:f2841c49e8750658ecb8c1d46d2c05a9de4740362eb83e3e7e501d3092c0377e", size = 20604, upload-time = "2026-05-26T14:28:57.107Z" },
+]
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -80,31 +119,52 @@ wheels = [
 
 [[package]]
 name = "dbus-fast"
-version = "4.0.4"
+version = "5.2.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/5f/cd/402b0e524bdf37d8b1d22b1d926c538bf1d2eedf115ea1d401c6c08a7d81/dbus_fast-4.0.4.tar.gz", hash = "sha256:43137f0b73a7adbf7d5c0e9eb9d8d34df9e6e0aeafade2166e641c52dfe0a853", size = 75260, upload-time = "2026-04-02T04:41:16.47Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4c/5b/ce64b8788c10a8bd313c8638b28be5dccdd5c2daf14839f23aff37e0b39d/dbus_fast-5.2.0.tar.gz", hash = "sha256:a4a5dddc04b1ade5eb7650d791e2f6fb7c1334595593473914e78a2526ecddda", size = 86442, upload-time = "2026-10-02T13:18:54.585Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d8/fc/e57373d034fbca2d51a4d2a3e13c64e008f2728ae3b650dc2c2f009f2c7e/dbus_fast-4.0.4-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:cf5109bbc98c8427f3cc22030de55e57a7288550bc0701a493905bbad3b3dc93", size = 829986, upload-time = "2026-04-02T04:49:53.356Z" },
-    { url = "https://files.pythonhosted.org/packages/be/98/c23f8ef850d3c67c7d9e36d5c2f71a6654baad2a5079c5e7b2d7d085c692/dbus_fast-4.0.4-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:baca8ffed5a5b18cce9c1f17820cc699512bc97ac0743b8b88c61159aa0c961a", size = 875581, upload-time = "2026-04-02T04:49:55.112Z" },
-    { url = "https://files.pythonhosted.org/packages/ad/65/3a605f3d6e7f97b9744795c02d496805057cd2b5414619870a68a21bfc57/dbus_fast-4.0.4-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:cb570c6c8dac1ee2ca02621c0d410ec78d1a96535deee8a34e3028f475be7675", size = 835865, upload-time = "2026-04-02T04:49:56.624Z" },
-    { url = "https://files.pythonhosted.org/packages/4f/cf/05d503fe790a5aeae09ed32a85f25b0d4fa93a10befac3b603d6247a4e90/dbus_fast-4.0.4-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:1a2ee216e0ddd7b4db397bb31ff71741f6c7fc9618d9ca201e0096d9523b4f33", size = 881676, upload-time = "2026-04-02T04:49:58.36Z" },
-    { url = "https://files.pythonhosted.org/packages/a8/cf/86b4b7057d11af1549135234612e40401c69f339551a1c0cd011439a6b8b/dbus_fast-4.0.4-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:00a3db08cf1d98bbedfb73467b774fd49adcf83935b8a92f6c552ce78d93491f", size = 792151, upload-time = "2026-04-02T04:50:02.014Z" },
-    { url = "https://files.pythonhosted.org/packages/95/e5/056a5845b19202336caed7d3b18896c75ec059b68c16f4ded71749c9e0a2/dbus_fast-4.0.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:74183b4ef4cc79a9cd1a46e006c19d00ce9abc7d99d36e6adcd094f414446d38", size = 844081, upload-time = "2026-04-02T04:50:04.007Z" },
-    { url = "https://files.pythonhosted.org/packages/25/03/aa1ef750da5f4cfd15eac9892c05ff95b6380cdc44d5bb63b8379c63e81f/dbus_fast-4.0.4-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:003f042b1299ebac900d6ee30e8ab2a29988937f56792894da7b5d39a26b1f5f", size = 799573, upload-time = "2026-04-02T04:50:05.58Z" },
-    { url = "https://files.pythonhosted.org/packages/22/0c/2338ca2a51eca2392eddd1c1854a5127a8deb705a65a1fc66dc49d1a5557/dbus_fast-4.0.4-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:87be8a41330481c3d3a5e30af10ec713e4f08fe0d6c36f5a401eaef7b5526417", size = 852067, upload-time = "2026-04-02T04:50:07.348Z" },
-    { url = "https://files.pythonhosted.org/packages/e9/3e/d8b733cca2dc03746496c2ea799125414cd875830a8cb384f1395ab6993d/dbus_fast-4.0.4-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1fe60ce3a97e265a3ad117b7f40fc8c08357781b1a2ed3e853f29f9e35d24af7", size = 790985, upload-time = "2026-04-02T04:50:10.742Z" },
-    { url = "https://files.pythonhosted.org/packages/aa/85/ec643d891f4bb38347172ca99e4fbeaa55b9a5c3a744bac42c3074893482/dbus_fast-4.0.4-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:982235dabb7e7187df4c2c299d95a6232aebc95c8c906496f630265a10bfdf95", size = 840552, upload-time = "2026-04-02T04:50:12.43Z" },
-    { url = "https://files.pythonhosted.org/packages/83/d5/50fb58f11387ab165f4ad010db9f5434aa386b8308467b5d968a10d09864/dbus_fast-4.0.4-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:33c0168e0e65ed2d0fa91682773cc893472e3d71a5e085ee082e6484c2d29f4a", size = 797179, upload-time = "2026-04-02T04:50:14.435Z" },
-    { url = "https://files.pythonhosted.org/packages/ca/25/dd83b280a4a405f7e1558951492714935e0c1601724d35a0db970afd0ad0/dbus_fast-4.0.4-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:069df5d46390299d7fccfc0e704af504a8b75794c2c3bc0246b6db0db1f245b0", size = 849052, upload-time = "2026-04-02T04:50:16.563Z" },
-    { url = "https://files.pythonhosted.org/packages/e0/ec/22c8904c1f3ecaee2012dfb1eb05d0481bedfaea80f27eab66d120f80b37/dbus_fast-4.0.4-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:0c3a8c07d672b1656a9c7cbdc9a85f493602f72fce8e7f9d97c5e972fa22a684", size = 804433, upload-time = "2026-04-02T04:50:20.747Z" },
-    { url = "https://files.pythonhosted.org/packages/1d/e9/4b3eabb25886f33218b96c7a0e2cd684a50932e00d951aae0181075d5217/dbus_fast-4.0.4-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:5512b9901ba600f1efdae2555ea18da2b67a46e5c24e397edb38ecbbde4aa43f", size = 846351, upload-time = "2026-04-02T04:50:22.9Z" },
-    { url = "https://files.pythonhosted.org/packages/4b/bc/a8330670389de2b69e7fb43b20ad08f0c3614f7d4a3a6cc9cbfcf72555fb/dbus_fast-4.0.4-cp314-cp314-manylinux_2_41_x86_64.whl", hash = "sha256:36f86ba826f05c4d238c9198ae962f90a9cd27ffacd3a4a988166b3d06c699ca", size = 844513, upload-time = "2026-04-02T04:41:15.087Z" },
-    { url = "https://files.pythonhosted.org/packages/ea/54/11a6f5cd13e67d30056651a6324b620f621a6980c1fc872fed3d1acdd1a0/dbus_fast-4.0.4-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:df0f88a9c1c9f9365627fbfb3dcae3589a12fdc82594945832cb24d9a62674d1", size = 811253, upload-time = "2026-04-02T04:50:24.615Z" },
-    { url = "https://files.pythonhosted.org/packages/f2/bd/30c204bdd0a779cf46f3a4faad5cb62c9bd42a22ebcb89caffecf488493d/dbus_fast-4.0.4-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:4c6c8722e829b8e750fd6db2906b298d3bcfc32d8cdf766e50ba474ef48bf2af", size = 853231, upload-time = "2026-04-02T04:50:26.239Z" },
-    { url = "https://files.pythonhosted.org/packages/74/73/af9794109638e38d59ea1ecbf18c4dea25f802debffc285504a6ebc81b2c/dbus_fast-4.0.4-cp314-cp314t-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:ad5240c29ec631f9610e03a6bbf4f4c22274e04ea8791e8401542cd6cdbd7b28", size = 1534429, upload-time = "2026-04-02T04:50:29.998Z" },
-    { url = "https://files.pythonhosted.org/packages/82/3d/a033cc655a3a32ee145f575cd05066cf5bed71e24238947d77fb9597c905/dbus_fast-4.0.4-cp314-cp314t-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:5843c3e543ac1d48cafff67394ada9e568f20d122b44408e378ae43402b785ca", size = 1610602, upload-time = "2026-04-02T04:50:32.146Z" },
-    { url = "https://files.pythonhosted.org/packages/4a/46/2834b825da3f6ef206f5bc55363bc8751addcfc03fa34c639f72006f6a3e/dbus_fast-4.0.4-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:7ebb845f2e15ef19f4a99cb879dfbcb1c7028a97d5aaba93b36f65cfd938a022", size = 1550136, upload-time = "2026-04-02T04:50:34.311Z" },
-    { url = "https://files.pythonhosted.org/packages/9e/01/894b2f6954d12c5c527232906d67272b59f0f12f386cd2d394d5e5eac7fc/dbus_fast-4.0.4-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:698fe83128150dd49aaa7deb5493523309f0a9749c3c075730a6981851607455", size = 1627660, upload-time = "2026-04-02T04:50:36.5Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/b5/c781f46c21fb123e41987d99859bd38351fa1fd0629a670a009b490d17d8/dbus_fast-5.2.0-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:ddf103405d0fe9b0c764d3ce8d59e557bed1d68aff7d3b16f6eab94bf6f85d91", size = 884515, upload-time = "2026-10-02T13:40:11.29Z" },
+    { url = "https://files.pythonhosted.org/packages/e1/8c/3c5c5eb0a09d765d016122a0af1bff21b882ab2b870bca03ddcd3d351a9f/dbus_fast-5.2.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:4944cb6cf92af103b4127e3935f138a8852b8268444ed8bf7975c507cad45c8a", size = 929821, upload-time = "2026-10-02T13:40:12.951Z" },
+    { url = "https://files.pythonhosted.org/packages/2b/fd/d5b3f4cdf2792d21c3db416817e6e67d57e048103db27aebf4d93e1e191d/dbus_fast-5.2.0-cp311-cp311-manylinux_2_31_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:0858d3f0a9b9fe506e6847c8200e85fda4b62319aa5712e61dfa696f19e0d1f3", size = 926958, upload-time = "2026-10-02T13:40:14.463Z" },
+    { url = "https://files.pythonhosted.org/packages/60/76/778e70c856fe599900fd60ecff1365c65c44cc14bcf7e8e28afaefc4bed8/dbus_fast-5.2.0-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:5c8b4b70b8811e3fe431370f7e9699c01eb097561ddfa367081e5abdcf34a9a8", size = 892146, upload-time = "2026-10-02T13:40:16.106Z" },
+    { url = "https://files.pythonhosted.org/packages/5f/57/447943bdda0982389c5481198fbc42421e11a033ecf6d0c826f6ea7d1c39/dbus_fast-5.2.0-cp311-cp311-musllinux_1_2_riscv64.whl", hash = "sha256:e5b07944dce15b734f6d0e80a54f66909de6fca0671fdf12ed512758721ba4bb", size = 924596, upload-time = "2026-10-02T13:40:17.556Z" },
+    { url = "https://files.pythonhosted.org/packages/14/1b/c996514180fa9053e202d5945c99fbd70d492f4b13520957bd4c68e9e467/dbus_fast-5.2.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:ba81e8455b9b893dc6ce31535049b938835beea8c20e85e181fc23e46f0bed12", size = 937884, upload-time = "2026-10-02T13:40:19.254Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/81/3c3ab1c728e2493e6c01c2e652ed42a60821cc190c4a596d2405d3374812/dbus_fast-5.2.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:e5a0742c9c2bdae7599d1fff06a609cc7cf19d4a84bf7e6e2cea1d086d1ecc0b", size = 847456, upload-time = "2026-10-02T13:40:22.511Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/d8/528ce993791bc06fb5bc8b8abef87f49240945302e858a1d6894073e7c54/dbus_fast-5.2.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:236327794a5957238e83c363809903b6a47d1f4fecd64831a29fd09458d90f0e", size = 902179, upload-time = "2026-10-02T13:40:24.283Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/74/5b05962c37965d790433b29e1aa4b0c1e6e21eea546cda8ee9bc4410ea5a/dbus_fast-5.2.0-cp312-cp312-manylinux_2_31_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:5bde3e9bae0af4bdc27afa9b4550e15ed55c32907b45620d35b36bd0f1ba28b4", size = 880104, upload-time = "2026-10-02T13:40:26.052Z" },
+    { url = "https://files.pythonhosted.org/packages/28/9d/c1f15f5d59ac55bb39a01e41e429f2436f2f005aac414b17ef2183b56e6a/dbus_fast-5.2.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:ec7e32787f43ddd637da4b46576e288deb0148c19253ac5a3cf5a69e8dacbe08", size = 856934, upload-time = "2026-10-02T13:40:27.657Z" },
+    { url = "https://files.pythonhosted.org/packages/de/83/3dfc69e0b35b8ea0db5834a4d3b57222a1986dc9d710485483d6de8c8e6a/dbus_fast-5.2.0-cp312-cp312-musllinux_1_2_riscv64.whl", hash = "sha256:255b79663e44708479a9b15f4a05be633186e6169e9ee4037001b036f2fda989", size = 879743, upload-time = "2026-10-02T13:40:29.216Z" },
+    { url = "https://files.pythonhosted.org/packages/46/fc/80e83874d305e6afc48fd6908022d34ff35d9e5eed6b7a3e93a50855d79c/dbus_fast-5.2.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:9945f15b3cff4857a82498ee933f5c56aa949afe3bcbdf62e4c7c670e7ac7ec3", size = 909808, upload-time = "2026-10-02T13:40:30.851Z" },
+    { url = "https://files.pythonhosted.org/packages/09/f6/5af4fe51007d99801affbac6e9a9231c5a75ba4d410e569ec5fa3987cf24/dbus_fast-5.2.0-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:f0c3d3f153fbcdaae27409afe7ac42654ed768c8de2da35aa929ba4143935455", size = 844140, upload-time = "2026-10-02T13:40:34.076Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/8d/8faf59c288feabba6545998de9c7748c8f995ec953a7b6a07e2c7f84cba4/dbus_fast-5.2.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:da7835ccc6e8cb2b54516558097156da6dbf6636c27033b427135bad693317fb", size = 896495, upload-time = "2026-10-02T13:40:35.697Z" },
+    { url = "https://files.pythonhosted.org/packages/c5/87/3723caedeab96ffb963c84485108c5764a583e8d7abc379bdd9230b7f3fe/dbus_fast-5.2.0-cp313-cp313-manylinux_2_31_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:0c0d6ff2dffa3115fb5c670a0d17474827428ba87991f5e7b4d3791f0abcb07f", size = 872192, upload-time = "2026-10-02T13:40:37.361Z" },
+    { url = "https://files.pythonhosted.org/packages/3a/62/fb216d28c404182c353df3523de5de8f20b4a95dc1227685bc255cc72c9c/dbus_fast-5.2.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:5f6cfee9c3de4b8a3dd406abca9aabe2f28ccefc7b68f9b26c4f92ccc9b2fe4e", size = 854004, upload-time = "2026-10-02T13:40:38.909Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/f3/35ff56204e5843224037a5226837e1af25f7908e198df58dbb2e895c72e9/dbus_fast-5.2.0-cp313-cp313-musllinux_1_2_riscv64.whl", hash = "sha256:0e061cf9b31c540af7641739fef11654392c283f3c611f5009b6019b0d7c6ddd", size = 874144, upload-time = "2026-10-02T13:40:40.486Z" },
+    { url = "https://files.pythonhosted.org/packages/40/1c/9010c0937a1f4de1d1fdc1cb0c00e2140d1ef606f5191063ade56347dbaf/dbus_fast-5.2.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:9a17cd5e062ebfa48f996b4aa5db7202eb8e2df9ad5be36bf39198422e6457b8", size = 905251, upload-time = "2026-10-02T13:40:42.183Z" },
+    { url = "https://files.pythonhosted.org/packages/f5/4c/cdb494b0aadaf99c970f6baca4a3156506b6ffe9a6061ea2c725b214fea5/dbus_fast-5.2.0-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:0a772708d25c11e980642781f603882e3dc51b5767be19075ffc5a484c4d3411", size = 857487, upload-time = "2026-10-02T13:40:45.254Z" },
+    { url = "https://files.pythonhosted.org/packages/3b/a7/ec412544064624f12681113debf1a991293e9632bd0125a03a8e652d00e8/dbus_fast-5.2.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7c66b094e96c221b877ccd6627bc3b9d808ac8317a8f6adc1cb2a0223e7d64e2", size = 900696, upload-time = "2026-10-02T13:40:47.255Z" },
+    { url = "https://files.pythonhosted.org/packages/26/8e/d2e7791016d88ce8b28afdd5a6d0381937c376e8eed3b761c585cc1ef117/dbus_fast-5.2.0-cp314-cp314-manylinux_2_31_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:79b842eb42f439fabd47db9deb7846d849933eb864fc53373d355c63f850eaa6", size = 877727, upload-time = "2026-10-02T13:40:48.88Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/3f/edc14f91f77030bffc891319a2b7939b737972e1b7a17490dc5df3cc7a78/dbus_fast-5.2.0-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:788861134ac1794d44a03970fc817896b4bb35247353eeb13c363e238f7d4474", size = 867199, upload-time = "2026-10-02T13:40:50.478Z" },
+    { url = "https://files.pythonhosted.org/packages/89/96/cfc6f0c7a6e3634239bc98de1f5e701ed7330c5c2f9f1f8115a637efe1a9/dbus_fast-5.2.0-cp314-cp314-musllinux_1_2_riscv64.whl", hash = "sha256:352e4cc8dbc608e297a73784857a8f9841d3a221b10e4b0f6a1b4b5168456e51", size = 880795, upload-time = "2026-10-02T13:40:52.128Z" },
+    { url = "https://files.pythonhosted.org/packages/74/5b/07ec1855d708d396c8847414508f126d792b69ae0767e6c6305fd07d92a2/dbus_fast-5.2.0-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:fc04ca465f9d9847aa4273efe85da8fed82988004f1002b833df788f48fc0ecd", size = 910365, upload-time = "2026-10-02T13:40:53.799Z" },
+    { url = "https://files.pythonhosted.org/packages/23/09/6c97339dcdce2c1aed42eaeaf4bff309c097ae92ee2395b1d3e6844171b2/dbus_fast-5.2.0-cp314-cp314t-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:aa260884e2df72d584ffec2d5d2f90ea0d624db8326ff0bea33b59f8998a09f2", size = 1625010, upload-time = "2026-10-02T13:40:57.105Z" },
+    { url = "https://files.pythonhosted.org/packages/76/27/ee9b144dd0960960c39300aee480df9da7597fd9158e10992c6f8198c67a/dbus_fast-5.2.0-cp314-cp314t-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:fc5845602cd734e01bcee84fc2ff08642987d95d42edb434d048103905d3173f", size = 1706829, upload-time = "2026-10-02T13:40:58.836Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/cf/46b9fb29b1cc51bbca6ba6da078739fde78c6f2b80da1e903a5ab7adf4e8/dbus_fast-5.2.0-cp314-cp314t-manylinux_2_31_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:288111b8d920b5ab445c2d9e4f13cd8521fe5233efe191c4749dd8fd07c5beb9", size = 868530, upload-time = "2026-10-02T13:41:00.639Z" },
+    { url = "https://files.pythonhosted.org/packages/61/3d/fd53daea0cfa5d7d1e2abfb02253003d4c82cb566575047c69b295d26508/dbus_fast-5.2.0-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:d828828f879c0536981c1eaf2d4c6fa65fd30354cecb1e16a158a9cda36a827c", size = 1646233, upload-time = "2026-10-02T13:41:02.318Z" },
+    { url = "https://files.pythonhosted.org/packages/95/d4/f245a10be37bd2b3ca285a4ba43796421d018e52c9b59f8e92f92d2ca733/dbus_fast-5.2.0-cp314-cp314t-musllinux_1_2_riscv64.whl", hash = "sha256:0c4e7f48961e7c85540086458be0c5ca6ae6272e327c15907bd7d1e777ab2ace", size = 872057, upload-time = "2026-10-02T13:41:04.102Z" },
+    { url = "https://files.pythonhosted.org/packages/13/6e/08d7cce0bdb8b930e19aa7fa1e6cd89b9984ce2039c23f29b2b85e6df171/dbus_fast-5.2.0-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:a0d506adfcbd5451e23ec2b645437ccf419e9ed7ad1f6f82b622d2a292fd23e5", size = 1727355, upload-time = "2026-10-02T13:41:05.805Z" },
+    { url = "https://files.pythonhosted.org/packages/d0/8e/f6e5ac0f44785e7913824d4c6bebcd27d60e536d0b28309ec9e7b8350f4a/dbus_fast-5.2.0-cp315-cp315-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1aad5984b9724f438a2ccd5e3df15723aece0d248b309576744345a04eee948a", size = 857866, upload-time = "2026-10-02T13:41:09.359Z" },
+    { url = "https://files.pythonhosted.org/packages/0b/f3/a8fbdc8b5fa801b4f08b73abfdd62372a37badbc63e36380578c4882a82e/dbus_fast-5.2.0-cp315-cp315-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:dbe4982d86e93fe285c695c0808601e7187f01501df77c2342d4132c11bcac17", size = 905536, upload-time = "2026-10-02T13:41:11.337Z" },
+    { url = "https://files.pythonhosted.org/packages/99/6b/8cfbdd0fc286ceef1280c877897e21a4d689068afe04d48f517a26342300/dbus_fast-5.2.0-cp315-cp315-manylinux_2_31_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:d01ae4246b3b503b529be3f4ad3660d92687b5d0f085683d2ef48ec3247d5133", size = 898586, upload-time = "2026-10-02T13:41:13.311Z" },
+    { url = "https://files.pythonhosted.org/packages/2b/77/2447fc6a66cf02ead0ad4077cead0fae5745838a915794a6c79ebbf26216/dbus_fast-5.2.0-cp315-cp315-musllinux_1_2_aarch64.whl", hash = "sha256:f4a47be94f369cca2308645345df8a0949e9139f9b0f6e64fbd11945924b13b7", size = 867311, upload-time = "2026-10-02T13:41:15.264Z" },
+    { url = "https://files.pythonhosted.org/packages/22/c1/5067a3bc84e29e6fe1450a2391a4c04b6cc8623a8c9ca6bca685a867ff23/dbus_fast-5.2.0-cp315-cp315-musllinux_1_2_riscv64.whl", hash = "sha256:594f755fe172c76dd1a7f6558504244a0713da4ce07d9cf9abb5db80372a5d4f", size = 901258, upload-time = "2026-10-02T13:41:17.089Z" },
+    { url = "https://files.pythonhosted.org/packages/26/58/0af518b24f40d240b969c9840bd3b8c8d8adb4c12c245e8a86b58c4133ee/dbus_fast-5.2.0-cp315-cp315-musllinux_1_2_x86_64.whl", hash = "sha256:c0ca312d8643f1f358f9fd96d2ccaf8dccd01d0c14c08c20e3f1686aa198231d", size = 913535, upload-time = "2026-10-02T13:41:18.823Z" },
+    { url = "https://files.pythonhosted.org/packages/78/e9/409f538dfb3a8f85543decb70100f20b46fcb0a7c1d6ae46c2a93cf74dd9/dbus_fast-5.2.0-cp315-cp315t-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:74b8a6c22657740523f8d16e4d373925a408c7dc30dfd4935ea21939c042510c", size = 1623008, upload-time = "2026-10-02T13:41:22.419Z" },
+    { url = "https://files.pythonhosted.org/packages/14/42/05c3bd682615dd6407edcca284604e83999f9967540a1376f7c51a40ef19/dbus_fast-5.2.0-cp315-cp315t-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:f22ac2df864dd0532f3d797f21118341e7520d6b36ac68a327eac6291624fb2b", size = 1710212, upload-time = "2026-10-02T13:41:24.231Z" },
+    { url = "https://files.pythonhosted.org/packages/3b/c5/f063efc49884d6eeaf97a6c499847326e8fa3d163f5b3817cd2e8dd12aba/dbus_fast-5.2.0-cp315-cp315t-manylinux_2_31_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:4d91ce3cd74b3b8a1518afca3ceb90ab7b280a53e9c50a257453b83e48c4b19c", size = 886477, upload-time = "2026-10-02T13:41:26.035Z" },
+    { url = "https://files.pythonhosted.org/packages/15/8c/32e83f3635ae43a1863ef55b1be42ce58cee85fd13409bb8b197bca600b1/dbus_fast-5.2.0-cp315-cp315t-musllinux_1_2_aarch64.whl", hash = "sha256:cc171f8b0728626eba19ac5893cbf1a5a813120e6fd0440168ba013f941abeb8", size = 1644612, upload-time = "2026-10-02T13:41:27.943Z" },
+    { url = "https://files.pythonhosted.org/packages/96/f4/13461600a4f019ff3b6eb285a6f992efcbe188b203defe7d0977634e231a/dbus_fast-5.2.0-cp315-cp315t-musllinux_1_2_riscv64.whl", hash = "sha256:5e8d93ca1b3d344c7ff5c4959e6d8ac2c6a0e794aef9d1606177647d537b7e99", size = 888703, upload-time = "2026-10-02T13:41:29.948Z" },
+    { url = "https://files.pythonhosted.org/packages/bd/86/df2000ce91efb75104189fe41ffae517c6c8c1ba97f4160fa8322390f704/dbus_fast-5.2.0-cp315-cp315t-musllinux_1_2_x86_64.whl", hash = "sha256:e6f32672a446284b0d381349c91f6602356a4c017c1604fccbcc02347496be92", size = 1727655, upload-time = "2026-10-02T13:41:32.145Z" },
 ]
 
 [[package]]
@@ -416,11 +476,30 @@ wheels = [
 ]
 
 [[package]]
+name = "uart-devices"
+version = "0.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/dd/08/a8fd6b3dd2cb92344fb4239d4e81ee121767430d7ce71f3f41282f7334e0/uart_devices-0.1.1.tar.gz", hash = "sha256:3a52c4ae0f5f7400ebe1ae5f6e2a2d40cc0b7f18a50e895236535c4e53c6ed34", size = 5167, upload-time = "2025-02-22T16:47:05.609Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/12/64/edf33c2d7fba7d6bf057c9dc4235bfc699517ea4c996240a1a9c2bf51c29/uart_devices-0.1.1-py3-none-any.whl", hash = "sha256:55bc8cce66465e90b298f0910e5c496bc7be021341c5455954cf61c6253dc123", size = 4827, upload-time = "2025-02-22T16:47:04.286Z" },
+]
+
+[[package]]
+name = "usb-devices"
+version = "0.5.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ef/93/76be49b956574f75c9b907193732ff2b6b8f7075692adde93a7f151b30e5/usb_devices-0.5.1.tar.gz", hash = "sha256:8ef45c401490391a3651b3ba748eb213a654ac165be10a0786ab963668c49cc3", size = 5365, upload-time = "2026-05-27T18:01:56.115Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3d/12/f8dd0bd25e9e2ab747b47ae4efed08de75f595f6136a71bafaf3db0c47ed/usb_devices-0.5.1-py3-none-any.whl", hash = "sha256:e77e7972b5ac6a883b3778b0273d9582c5b8ae847ac78fba3d080dd4a4cc69ad", size = 5423, upload-time = "2026-05-27T18:01:55.012Z" },
+]
+
+[[package]]
 name = "vitamix-ble"
 version = "0.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "bleak" },
+    { name = "bleak-retry-connector" },
 ]
 
 [package.optional-dependencies]
@@ -434,6 +513,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bleak", specifier = ">=0.22" },
+    { name = "bleak-retry-connector", specifier = ">=3.5" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
