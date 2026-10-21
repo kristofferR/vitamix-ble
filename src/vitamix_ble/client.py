@@ -3,9 +3,10 @@
 Replies carry no transaction id, so exchanges are correlated by
 sequencing them: one outstanding request per connection, and any
 notification that arrives while nothing is pending is dropped. After a
-timeout the next request waits briefly so a late reply cannot be taken
-as its answer. The official app does the same (it polls; the device
-sends no unsolicited notifications in normal operation).
+timeout the client reconnects before its next request, because the late
+reply could otherwise be taken as that request's answer. The official app
+also polls one request at a time; the device sends no unsolicited
+notifications in normal operation.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from types import TracebackType
 from typing import Self
@@ -63,8 +64,6 @@ DEFAULT_REQUEST_TIMEOUT = 10.0
 DEFAULT_SCAN_TIMEOUT = 30.0
 DEFAULT_CONNECT_TIMEOUT = 30.0
 DEFAULT_CONNECT_ATTEMPTS = 3
-# How long to ignore notifications after a timed-out request.
-LATE_REPLY_GRACE = 1.0
 
 
 class VitamixError(RuntimeError):
@@ -106,7 +105,6 @@ class VitamixClient:
         ble_device: BLEDevice | str,
         *,
         slave: int = SLAVE_CPANEL,
-        ble_device_callback: Callable[[], BLEDevice] | None = None,
         request_timeout: float = DEFAULT_REQUEST_TIMEOUT,
         connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
         connect_attempts: int = DEFAULT_CONNECT_ATTEMPTS,
@@ -116,19 +114,19 @@ class VitamixClient:
         Args:
             ble_device: A discovered :class:`BLEDevice` (preferred; connects
                 with retries via ``bleak-retry-connector``) or an address.
-            ble_device_callback: Returns the freshest :class:`BLEDevice` for
-                retries, e.g. to switch to a closer Bluetooth proxy.
+            connect_timeout: Timeout for address-only connections. With a
+                :class:`BLEDevice`, ``bleak-retry-connector`` sets the
+                per-attempt timeout and ``connect_attempts`` the retries.
         """
         self._ble_device = ble_device
         self._slave = slave
-        self._ble_device_callback = ble_device_callback
         self._request_timeout = request_timeout
         self._connect_timeout = connect_timeout
         self._connect_attempts = connect_attempts
         self._client: BleakClient | None = None
         self._lock = asyncio.Lock()
         self._pending: asyncio.Future[bytes] | None = None
-        self._quiet_until = 0.0
+        self._stale = False  # a request timed out; its reply may still arrive
 
     # -- construction ------------------------------------------------------
 
@@ -177,11 +175,11 @@ class VitamixClient:
                 self._ble_device,
                 self._ble_device.name or self._ble_device.address,
                 max_attempts=self._connect_attempts,
-                ble_device_callback=self._ble_device_callback,
             )
         else:
             self._client = BleakClient(self._ble_device, timeout=self._connect_timeout)
             await self._client.connect()
+        self._stale = False
         try:
             await self._client.start_notify(NOTIFY_CHARACTERISTIC_UUID, self._on_notify)
             # Give the device a moment to settle before the first request.
@@ -211,9 +209,8 @@ class VitamixClient:
 
     async def read_registers(self, register: int, count: int = 1) -> list[int]:
         """Read ``count`` consecutive 16-bit registers starting at ``register``."""
-        client = self._require_client()
         request = encode_read(register, count, slave=self._slave)
-        response = await self._exchange(client, request)
+        response = await self._exchange(request)
         try:
             values, status = decode_read_response(response, count)
         except ReplyStatusError as exc:
@@ -242,9 +239,8 @@ class VitamixClient:
             VitamixWriteRejected: if the firmware returned a non-zero status
                 code (Modbus-style exception).
         """
-        client = self._require_client()
         request = encode_write(register, values, slave=self._slave)
-        response = await self._exchange(client, request)
+        response = await self._exchange(request)
         status = decode_write_response(response)
         if not status.ok:
             raise VitamixWriteRejectedError(status)
@@ -536,23 +532,24 @@ class VitamixClient:
             raise VitamixError("client is not connected")
         return self._client
 
-    async def _exchange(self, client: BleakClient, request: bytes) -> bytes:
+    async def _exchange(self, request: bytes, timeout: float | None = None) -> bytes:
         """Send one request and return its reply; one request at a time."""
         if request == DFU_MAGIC:
             raise VitamixError("refusing to send the firmware-update magic")
         async with self._lock:
-            loop = asyncio.get_running_loop()
-            quiet = self._quiet_until - loop.time()
-            if quiet > 0:
-                await asyncio.sleep(quiet)
-            self._pending = loop.create_future()
+            if self._stale:
+                await self.disconnect()
+                await self.connect()
+            client = self._require_client()
+            self._pending = asyncio.get_running_loop().create_future()
             try:
                 await client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, request, response=True)
-                return await asyncio.wait_for(self._pending, timeout=self._request_timeout)
+                timeout = self._request_timeout if timeout is None else timeout
+                return await asyncio.wait_for(self._pending, timeout=timeout)
             except TimeoutError as exc:
-                self._quiet_until = loop.time() + LATE_REPLY_GRACE
+                self._stale = True
                 raise VitamixTimeoutError(
-                    f"no response to {request.hex()} within {self._request_timeout}s"
+                    f"no response to {request.hex()} within {timeout}s"
                 ) from exc
             finally:
                 self._pending = None

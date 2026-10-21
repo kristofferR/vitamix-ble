@@ -16,16 +16,17 @@ class FakeGatt:
     """Answers each write with the next scripted reply (``None`` = no reply)."""
 
     def __init__(self, replies: list[bytes | None]) -> None:
-        self.reply_delay = 0.0
         self.replies = replies
         self.writes: list[bytes] = []
         self.notify: Callable[[Any, bytearray], None] | None = None
         self.is_connected = True
         self.disconnected = False
         self.fail_notify = False
+        self.connects = 0
 
     async def connect(self) -> None:
-        pass
+        self.connects += 1
+        self.is_connected = True
 
     async def start_notify(self, _uuid: str, callback: Callable[[Any, bytearray], None]) -> None:
         if self.fail_notify:
@@ -44,9 +45,7 @@ class FakeGatt:
         reply = self.replies.pop(0)
         if reply is not None:
             assert self.notify is not None
-            asyncio.get_running_loop().call_later(
-                self.reply_delay, self.notify, None, bytearray(reply)
-            )
+            asyncio.get_running_loop().call_soon(self.notify, None, bytearray(reply))
 
     def push(self, data: bytes) -> None:
         assert self.notify is not None
@@ -79,16 +78,16 @@ async def test_unsolicited_notification_is_dropped() -> None:
     assert await vmx.read_registers(0x0100, 1) == [2]
 
 
-async def test_late_reply_is_not_taken_as_next_answer(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(client_module, "LATE_REPLY_GRACE", 0.05)
+async def test_timeout_forces_a_reconnect(monkeypatch: pytest.MonkeyPatch) -> None:
     vmx, gatt = connected([None, bytes.fromhex("02000200")])
+    monkeypatch.setattr(client_module, "BleakClient", lambda *_a, **_kw: gatt)
     with pytest.raises(VitamixTimeoutError):
         await vmx.read_registers(0x0100, 1)
-    # The first request's reply arrives late, before the second request's
-    # (slower) reply. Without the grace period it would be taken as the answer.
-    gatt.reply_delay = 0.04
-    asyncio.get_running_loop().call_later(0.02, gatt.push, bytes.fromhex("02000100"))
+    # A late reply to the timed-out request could otherwise answer the next
+    # one, so the next request runs on a fresh connection.
     assert await vmx.read_registers(0x0100, 1) == [2]
+    assert gatt.disconnected
+    assert gatt.connects == 1
 
 
 async def test_notify_setup_failure_disconnects(monkeypatch: pytest.MonkeyPatch) -> None:
