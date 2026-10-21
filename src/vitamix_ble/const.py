@@ -58,27 +58,71 @@ DFU_MAGIC: Final = bytes.fromhex("deadbeef")
 
 
 # ---------------------------------------------------------------------------
-# Slave addresses — there are multiple sub-devices on the internal bus.
+# Slave addresses. The official app identifies the panel at runtime (see
+# ``VitamixClient.identify``): C-panels (Ascent A3300/A3500) spread their
+# registers over three boards, B-panels (Ascent A2300/A2500, Venturist)
+# answer on one address.
 # ---------------------------------------------------------------------------
 
-SLAVE_BPANEL: Final = 0x02  # older "B-panel" interface
-SLAVE_CPANEL: Final = 0x67  # Ascent / Venturist "C-panel" interface
+SLAVE_C_SAMD: Final = 0x02  # C main board: model, Thread firmware, programs
+SLAVE_C_NXP: Final = 0x03  # C NFC board: container detection
+SLAVE_C_NORDIC: Final = 0x04  # C radio board: sleep, motor, BLE power
+SLAVE_B: Final = 0x67  # every B-panel and old-B register
 
 
 # ---------------------------------------------------------------------------
-# Known register addresses (all on slave 0x67 unless noted).
+# Identification (read during ``identify``).
 # ---------------------------------------------------------------------------
 
-# Motor block (telemetry + device specs).
-REG_MOTOR_RUN: Final = 0x0100  # u16: 0 = stopped, 1 = running
-REG_MOTOR_RPM_LIVE: Final = 0x0101  # u16: live blade RPM (jittery)
-REG_MOTOR_MAX_RPM: Final = 0x010A  # u16: rated max RPM (firmware constant)
-REG_MOTOR_RATED_RPM: Final = 0x010B  # u16: rated continuous RPM
-REG_MOTOR_MAX_PERCENT: Final = 0x0111  # u16: 100
-REG_MOTOR_RATED_W: Final = 0x0113  # u16: rated wattage in watts
+# Read on SLAVE_C_SAMD. Its outcome selects the panel: a reply means C, a
+# timeout means B. The value is the C UI model.
+REG_C_MODEL: Final = 0x081A  # u16: 0 = A3500 (UI-C1), nonzero = A3300 (UI-C2)
+REG_C_THREAD_FIRMWARE: Final = 0x0818  # u16 x 3; (1, 4, ...) changes polling/cancel
+REG_FIRMWARE: Final = 0x0001  # u16 x 2 on each C board (SAMD, NXP, Nordic)
+REG_B_MODEL: Final = 0x3482  # u16: B model word, 0 = old B
+REG_BLE_POWER: Final = 0x34FC  # u16 x 2; the app writes 9 here (units unknown)
 
-# Recipe / program-arm.
-REG_RECIPE: Final = 0x0200  # u16: 0 = idle/cancel, 1..N = saved program slot
+C_MODELS: Final[dict[int, str]] = {0: "Ascent A3500"}
+C_MODEL_OTHER: Final = "Ascent A3300"
+B_MODELS: Final[dict[int, str]] = {
+    0x075D: "Venturist 350",
+    0x0501: "Venturist 330",
+    0x0301: "Ascent A2300",
+    0x0101: "Ascent A2300",
+    0x031D: "Ascent A2500",
+}
+
+
+# ---------------------------------------------------------------------------
+# Status polled by the official app.
+# ---------------------------------------------------------------------------
+
+REG_SLEEP: Final = 0x347F  # u16: 1 = panel asleep (C: Nordic, B: 0x67)
+REG_MOTOR: Final = 0x0100  # u16 word 0: 1 = motor running (C reads 5 words)
+REG_C_CONTAINER_PRESENT: Final = 0x0F00  # u16 on NXP: 0 = none, 1 = present
+REG_C_CONTAINER_ID: Final = 0x3640  # u16 on NXP: raw container id
+REG_C_RECIPE_STATE: Final = 0x3220  # u16 x 4 on SAMD, Thread 1.4 only
+C_RECIPE_STATE_MARKER: Final = 101  # word 0 when word 1 holds the recipe state
+REG_B_CONTAINER: Final = 0x3480  # u16 x 2: (1 = present, raw container id)
+REG_RECIPE: Final = 0x0200  # B recipe state: 0 = idle, 3 = program ready
+
+# Recipe states the app's UI reacts to.
+RECIPE_READY: Final = 3  # B: turn the dial to 1, then press start
+RECIPE_C_PRESS_PULSE: Final = 4  # C Thread 1.4
+RECIPE_C_READY: Final = 5  # C Thread 1.4: press start
+
+
+# ---------------------------------------------------------------------------
+# Unverified registers. Earlier live probing on slave 0x67 found plausible
+# motor values here, but the official app never reads them on any panel.
+# ---------------------------------------------------------------------------
+
+REG_MOTOR_RPM_LIVE: Final = 0x0101  # u16: live blade RPM?
+REG_MOTOR_MAX_RPM: Final = 0x010A  # u16: max RPM? (e.g. 12000)
+REG_MOTOR_RATED_RPM: Final = 0x010B  # u16: rated RPM? (e.g. 5000)
+REG_MOTOR_MAX_PERCENT: Final = 0x0111  # u16: 100?
+REG_MOTOR_RATED_W: Final = 0x0113  # u16: rated watts? (e.g. 1200)
+
 
 # Custom-program "step" buffer (Ascent C-panel, panel-type 2).
 # The Perfect Blend app's ``setBlenderProgram`` panel-2 path writes one
@@ -93,12 +137,6 @@ REG_RECIPE: Final = 0x0200  # u16: 0 = idle/cancel, 1..N = saved program slot
 # A maximum of 6 steps fit in the 12-u16 buffer (0x0201..0x020C).
 REG_CUSTOM_PROGRAM_BASE: Final = 0x0201  # first u16 of the step buffer
 CUSTOM_PROGRAM_MAX_STEPS: Final = 6  # 12 u16s ÷ 2 (speed,time) = 6 steps
-
-# Panel / UI block.
-REG_PANEL_ARMED: Final = 0x347F  # u16: 1 when device is ready / start-armed
-REG_NFC_HARDWARE: Final = 0x3480  # u16 x 2: container hardware identifier
-REG_PANEL_3481: Final = 0x3481  # u16: container-related, often equal to REG_NFC_HARDWARE
-REG_PANEL_3482: Final = 0x3482  # u16: container variant or sub-type
 
 # Program-load registers (used by the official app's setBlenderProgram).
 # Writing to REG_RECIPE with a non-zero slot value arms a saved program;

@@ -1,9 +1,8 @@
 """Vitamix Self-Detect container hardware-id mappings.
 
-The C-panel firmware reports the attached container as a 16-bit
-hardware identifier on register 0x3480 (count=2). The first value is
-the hardware id; the second appears to be a sub-variant or container-
-present flag. Only the hardware-id is documented here.
+Panels report the attached container as a raw 16-bit id: C-panels on
+NFC-board register 0x3640, B-panels as the second word of 0x3480 (the
+first word is the presence flag).
 
 The mapping was extracted from the official Vitamix Perfect Blend
 Android app's bundled SQLite database (``assets/db/development.sqlite3``,
