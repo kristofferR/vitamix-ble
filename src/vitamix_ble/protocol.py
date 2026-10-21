@@ -20,7 +20,9 @@ Read reply (2 + 2*count bytes)::
 
 The official app ignores byte 0 (observed as ``0x02``) and treats byte 1
 as the status: ``0`` is success, :data:`~vitamix_ble.const.DEVICE_ERRORS`
-lists the named failures.
+lists the named failures. Error replies carry no data, so a short reply
+with a nonzero status is a failure; a complete reply is accepted whatever
+byte 1 holds, because it changes while the motor runs.
 
 Write request (5 + 2*count bytes)::
 
@@ -65,7 +67,7 @@ class ProtocolError(ValueError):
 
 
 class ReplyStatusError(ProtocolError):
-    """Raised when a read reply carries one of the device's named error statuses."""
+    """Raised when a read reply carries only a nonzero status, without data."""
 
     def __init__(self, code: int) -> None:
         super().__init__(f"device error {code}: {describe_status(code)}")
@@ -184,25 +186,22 @@ def decode_read_response(data: bytes, expected_count: int) -> tuple[list[int], i
         in request order) and the status byte.
 
     Raises:
-        ReplyStatusError: if the status is one of the device's named errors.
+        ReplyStatusError: if a short reply carries only a nonzero status.
         ProtocolError: if the payload is otherwise malformed.
     """
     if len(data) < 2:
         raise ProtocolError(f"response too short ({len(data)} bytes)")
     status = data[1]
-    if status in DEVICE_ERRORS:
-        raise ReplyStatusError(status)
     body = data[2:]
-    if len(body) != expected_count * 2:
-        raise ProtocolError(
-            f"wrong length: got {len(body)} value bytes, want {expected_count * 2}"
-            f" (status {status})",
-        )
-    # Unnamed nonzero statuses with a complete body are passed through:
-    # earlier live captures on slave 0x67 reported a changing byte here while
-    # the motor ran. Callers decide whether to trust the values.
-    values = [body[2 * i] | (body[2 * i + 1] << 8) for i in range(expected_count)]
-    return values, status
+    if len(body) == expected_count * 2:
+        # A complete reply is data even with a nonzero status: live captures
+        # on slave 0x67 showed this byte changing while the motor ran, so its
+        # value alone cannot tell an error from a counter.
+        values = [body[2 * i] | (body[2 * i + 1] << 8) for i in range(expected_count)]
+        return values, status
+    if status:
+        raise ReplyStatusError(status)
+    raise ProtocolError(f"wrong length: got {len(body)} value bytes, want {expected_count * 2}")
 
 
 def decode_write_response(data: bytes) -> PacketStatus:

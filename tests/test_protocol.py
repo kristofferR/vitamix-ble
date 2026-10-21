@@ -110,18 +110,17 @@ class TestDecodeReadResponse:
         # The official app never checks byte 0 of a read reply.
         assert decode_read_response(bytes.fromhex("ab003412cdab"), 2) == ([0x1234, 0xABCD], 0)
 
-    @pytest.mark.parametrize("reply", ["020b", "020b0100", "0214"])
-    def test_named_error_status_raises(self, reply: str) -> None:
+    @pytest.mark.parametrize("reply", ["020b", "0214", "0207"])
+    def test_status_only_reply_raises(self, reply: str) -> None:
         with pytest.raises(ReplyStatusError) as exc_info:
             decode_read_response(bytes.fromhex(reply), 1)
         assert exc_info.value.code == bytes.fromhex(reply)[1]
 
-    def test_unnamed_status_with_full_body_is_returned(self) -> None:
-        assert decode_read_response(bytes.fromhex("02070100"), 1) == ([1], 7)
-
-    def test_unnamed_status_without_body_rejected(self) -> None:
-        with pytest.raises(ProtocolError):
-            decode_read_response(bytes.fromhex("0207"), 1)
+    @pytest.mark.parametrize("status", [7, 11])
+    def test_complete_reply_is_data_whatever_the_status(self, status: int) -> None:
+        # Byte 1 ticks while the motor runs, so it can land on an error code.
+        reply = bytes([0x02, status, 0x01, 0x00])
+        assert decode_read_response(reply, 1) == ([1], status)
 
     def test_overlong_response_rejected(self) -> None:
         with pytest.raises(ProtocolError):

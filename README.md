@@ -103,9 +103,11 @@ write reply    : [status]                                          (0x00 = succe
 - Values are **little-endian** in both directions.
 - Modbus-like addressing, but no Modbus PDU and no CRC. Replies carry no
   register or transaction id, so only one request may be outstanding.
-- Status `0` is success. The official app names codes 11-20 (wrong
-  slave/function/register/length, an internal CRC failure, a base/panel
-  timeout); the library raises `VitamixRejectedError` for them.
+- Status `0` is success. Error replies carry only the status byte; the
+  official app names codes 11-20 (wrong slave/function/register/length, an
+  internal CRC failure, a base/panel timeout), and the library raises
+  `VitamixRejectedError`. A complete read reply is accepted whatever byte 1
+  holds, since it changes while the motor runs.
 - Requests and replies fit in one default-MTU payload (20 bytes): at most
   7 registers per write and 9 per read.
 - Never write `de ad be ef` to the write characteristic. The official app

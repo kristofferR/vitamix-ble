@@ -76,7 +76,7 @@ class VitamixRejectedError(VitamixError):
 
 
 class VitamixReadRejectedError(VitamixRejectedError):
-    """Raised when the device returns a named error status for a read."""
+    """Raised when the device answers a read with only an error status."""
 
     def __init__(self, code: int) -> None:
         super().__init__(code, "read")
@@ -188,7 +188,7 @@ class VitamixClient:
             raise VitamixError(f"could not parse read response {response.hex()}: {exc}") from exc
         if status:
             _LOGGER.debug(
-                "read 0x%04x returned unnamed status %d with data %s",
+                "read 0x%04x returned status %d with complete data %s",
                 register,
                 status,
                 response.hex(),
