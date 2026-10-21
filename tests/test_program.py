@@ -6,6 +6,8 @@ The vectors come from two independent analyses of the Perfect Blend app
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from vitamix_ble.client import VitamixUnsupportedError
@@ -58,10 +60,10 @@ class TestEncodeProgram:
             * 2
         )
 
-    def test_too_many_segments_rejected(self) -> None:
-        steps = [ProgramStep(power=0.5, seconds=240 * 4 + 1)]
+    @pytest.mark.parametrize("seconds", [240 * 4 + 1, 1e12])
+    def test_too_many_segments_rejected(self, seconds: float) -> None:
         with pytest.raises(ValueError, match="segments"):
-            encode_program(steps, PanelType.C)
+            encode_program([ProgramStep(power=0.5, seconds=seconds)], PanelType.C)
 
     def test_sub_second_steps_are_skipped(self) -> None:
         steps = [ProgramStep(power=0.2, seconds=0.5), *HALF_MINUTE]
@@ -145,9 +147,25 @@ class TestUploadProgram:
         blender = FakeBlender({}, slaves={0x67})
         vmx = attach(blender, device_info=OLD_B_INFO)
         with pytest.raises(VitamixUnsupportedError, match="container"):
-            await vmx.upload_program(HALF_MINUTE)
-        await vmx.upload_program(HALF_MINUTE, container_id=4)
+            await vmx.upload_program(HALF_MINUTE, assume_motor_stopped=True)
+        await vmx.upload_program(HALF_MINUTE, container_id=4, assume_motor_stopped=True)
         assert writes(blender)[-2:] == ["01673405010800", "01673404010100"]
+
+    async def test_unknown_motor_state_needs_confirmation(self) -> None:
+        blender = FakeBlender({}, slaves={0x67})
+        with pytest.raises(VitamixUnsupportedError, match="motor state"):
+            await attach(blender, device_info=OLD_B_INFO).upload_program(
+                HALF_MINUTE, container_id=4
+            )
+        assert writes(blender) == []
+
+    async def test_concurrent_cancel_waits_for_upload(self) -> None:
+        blender = b_blender()
+        vmx = attach(blender, device_info=B_INFO)
+        await asyncio.gather(vmx.upload_program(HALF_MINUTE), vmx.cancel_program())
+        sent = writes(blender)
+        # The upload's ready write is directly followed by the cancel.
+        assert sent[-2:] == ["01670200010300", "01670200010000"]
 
 
 class TestCancel:
@@ -163,7 +181,7 @@ class TestCancel:
 
     async def test_old_b_cancel(self) -> None:
         blender = FakeBlender({}, slaves={0x67})
-        await attach(blender, device_info=OLD_B_INFO).cancel_program()
+        await attach(blender, device_info=OLD_B_INFO).cancel_program(assume_motor_stopped=True)
         assert writes(blender) == ["01673404010000"]
 
     async def test_not_while_running(self) -> None:

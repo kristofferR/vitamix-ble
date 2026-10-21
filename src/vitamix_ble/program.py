@@ -103,17 +103,19 @@ def encode_program(steps: Sequence[ProgramStep], panel: PanelType) -> list[int]:
         ramp = max(1, min(5, math.floor(rate + 0.5)))
         speed = int(_f32(_f32(rpm / MAX_RPM) * 200.0)) if panel is PanelType.OLD_B else int(rpm)
         remaining = int(step.seconds)
+        # Check before expanding, so a huge duration fails fast.
+        needed = len(segments) + -(-remaining // MAX_SEGMENT_SECONDS)
+        if needed > PROGRAM_SEGMENTS:
+            raise ValueError(
+                f"program needs at least {needed} segments; at most {PROGRAM_SEGMENTS} fit"
+                f" (steps over {MAX_SEGMENT_SECONDS} s count as several)"
+            )
         while remaining > 0:
             segments.append((speed, min(remaining, MAX_SEGMENT_SECONDS), ramp))
             remaining -= MAX_SEGMENT_SECONDS
         previous = rpm
     if not segments:
         raise ValueError("every step is shorter than 1 second")
-    if len(segments) > PROGRAM_SEGMENTS:
-        raise ValueError(
-            f"program needs {len(segments)} segments; at most {PROGRAM_SEGMENTS} fit"
-            f" (steps over {MAX_SEGMENT_SECONDS} s count as several)"
-        )
     pad = _PAD_OLD_B if panel is PanelType.OLD_B else _PAD_C_B
     segments += [pad] * (PROGRAM_SEGMENTS - len(segments))
     flat = [value for segment in segments for value in segment]

@@ -169,7 +169,8 @@ class VitamixClient:
         self._connect_timeout = connect_timeout
         self._connect_attempts = connect_attempts
         self._client: BleakClient | None = None
-        self._lock = asyncio.Lock()
+        self._lock = asyncio.Lock()  # one request on the wire at a time
+        self._operation_lock = asyncio.Lock()  # one multi-request operation at a time
         self._pending: asyncio.Future[bytes] | None = None
         self._stale = False  # a request timed out; its reply may still arrive
         self._generation = 0  # bumped per connection; older callbacks are ignored
@@ -448,25 +449,44 @@ class VitamixClient:
             summary = BlenderState.IDLE
         return _awake(summary, container_id, motor, recipe)
 
-    async def cancel_program(self) -> PacketStatus:
+    async def cancel_program(self, *, assume_motor_stopped: bool = False) -> PacketStatus:
         """Cancel the loaded program, as the app's ``cancelCurrentProgram`` does.
 
         The app never cancels while the motor runs, and on C-panels only when
         the Thread firmware is known and not 1.4. This is not a motor stop.
 
+        Args:
+            assume_motor_stopped: Proceed when the panel cannot report the
+                motor state (old B). Only pass this if you know it is stopped.
+
         Raises:
             VitamixUnsupportedError: when the app would not send a cancel.
         """
-        info = await self._require_info()
-        if not info.can_cancel:
-            raise VitamixUnsupportedError("this panel's firmware does not accept cancel")
-        if (await self.read_state()).motor_running:
-            raise VitamixUnsupportedError("the official app never cancels while the motor runs")
-        slave, register, values = cancel_request(info.panel)
-        return await self.write_registers(register, values, slave=slave)
+        async with self._operation_lock:
+            info = await self._require_info()
+            if not info.can_cancel:
+                raise VitamixUnsupportedError("this panel's firmware does not accept cancel")
+            await self._require_stopped(assume_motor_stopped)
+            slave, register, values = cancel_request(info.panel)
+            return await self.write_registers(register, values, slave=slave)
+
+    async def _require_stopped(self, assume_motor_stopped: bool) -> VitamixState:
+        state = await self.read_state()
+        if state.motor_running:
+            raise VitamixUnsupportedError("the official app never writes while the motor runs")
+        if state.motor_running is None and not assume_motor_stopped:
+            raise VitamixUnsupportedError(
+                "this panel cannot report the motor state; pass assume_motor_stopped=True"
+                " only if the motor is stopped"
+            )
+        return state
 
     async def upload_program(
-        self, steps: Sequence[ProgramStep], *, container_id: int | None = None
+        self,
+        steps: Sequence[ProgramStep],
+        *,
+        container_id: int | None = None,
+        assume_motor_stopped: bool = False,
     ) -> None:
         """Upload a custom program the way the official app does.
 
@@ -482,34 +502,39 @@ class VitamixClient:
             steps: Up to four steps (steps over 240 s count as several).
             container_id: Override the detected container. Required on old-B
                 panels, which cannot report it.
+            assume_motor_stopped: Proceed when the panel cannot report the
+                motor state (old B). Only pass this if you know it is stopped.
 
         Raises:
             ValueError: for an invalid program, or one the container does not
                 allow (too long, or blending on the food processor).
-            VitamixUnsupportedError: while the motor runs, or without a
-                known container.
+            VitamixUnsupportedError: while the motor runs or its state is
+                unknown, or without a known container.
         """
-        info = await self._require_info()
-        state = await self.read_state()
-        if state.motor_running:
-            raise VitamixUnsupportedError("cannot upload a program while the motor runs")
-        if container_id is None:
-            container_id = state.container_id
-        if container_id is None:
-            raise VitamixUnsupportedError("no container detected; attach one or pass container_id")
-        words = encode_program(steps, info.panel)
-        container = lookup_container(container_id)
-        if container is not None:
-            if not container.blend_supported:
-                raise ValueError(f"{container.name} does not support blend programs")
-            seconds = program_seconds(steps)
-            if seconds > container.max_runtime_s:
-                raise ValueError(
-                    f"{seconds} s exceeds the {container.max_runtime_s} s limit"
-                    f" for the {container.name}"
+        async with self._operation_lock:
+            info = await self._require_info()
+            state = await self._require_stopped(assume_motor_stopped)
+            if container_id is None:
+                container_id = state.container_id
+            if container_id is None:
+                raise VitamixUnsupportedError(
+                    "no container detected; attach one or pass container_id"
                 )
-        for slave, register, values in upload_requests(info.panel, words, container_id):
-            await self.write_registers(register, values, slave=slave)
+            words = encode_program(steps, info.panel)
+            container = lookup_container(container_id)
+            if container is not None:
+                if not container.blend_supported:
+                    raise ValueError(f"{container.name} does not support blend programs")
+                seconds = program_seconds(steps)
+                if seconds > container.max_runtime_s:
+                    raise ValueError(
+                        f"{seconds} s exceeds the {container.max_runtime_s} s limit"
+                        f" for the {container.name}"
+                    )
+            # Held across every write so a concurrent cancel or upload
+            # cannot interleave with this panel's ordered sequence.
+            for slave, register, values in upload_requests(info.panel, words, container_id):
+                await self.write_registers(register, values, slave=slave)
 
     # -- experimental legacy motor control ------------------------------------
     #
