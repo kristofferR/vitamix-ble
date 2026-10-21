@@ -40,11 +40,13 @@ Python 3.11+ is required.
 import asyncio
 from vitamix_ble import VitamixClient
 
+
 async def main() -> None:
     client = await VitamixClient.from_address("AA:BB:CC:DD:EE:FF")
     async with client as vmx:
         state = await vmx.read_state()
         print(state)
+
 
 asyncio.run(main())
 ```
@@ -92,14 +94,24 @@ The official app's commands are exposed as high-level methods. Today:
 
 ```
 read  request  : [0x02] [slave] [reg_hi] [reg_lo] [count]
-read  response : [0x02] [status] [val0_lo] [val0_hi] ...           (LE values)
+read  reply    : [opaque] [status] [val0_lo] [val0_hi] ...         (LE values)
 write request  : [0x01] [slave] [reg_hi] [reg_lo] [count] [val0_lo] [val0_hi] ...
-write response : [status]                                          (0x00 = ACK)
+write reply    : [status]                                          (0x00 = success)
 ```
 
 - Register addresses are **big-endian** in requests.
 - Values are **little-endian** in both directions.
-- Slave `0x67` is the C-panel (Ascent / Venturist); `0x02` is the older B-panel.
+- Modbus-like addressing, but no Modbus PDU and no CRC. Replies carry no
+  register or transaction id, so only one request may be outstanding.
+- Status `0` is success. Error replies carry only the status byte; the
+  official app names codes 11-20 (wrong slave/function/register/length, an
+  internal CRC failure, a base/panel timeout), and the library raises
+  `VitamixRejectedError`. A complete read reply is accepted whatever byte 1
+  holds, since it changes while the motor runs.
+- Requests and replies fit in one default-MTU payload (20 bytes): at most
+  7 registers per write and 9 per read.
+- Never write `de ad be ef` to the write characteristic. The official app
+  uses it to enter firmware-update mode.
 
 ## Hacking on it
 

@@ -20,8 +20,10 @@ NOTIFY_CHARACTERISTIC_UUID: Final = "4a310003-cf3c-4cb9-bed6-2ea871b8d070"
 # Local-name advertised by the device.
 ADV_LOCAL_NAME: Final = "Vitamix_2.0"
 
-# Default MTU used by the firmware.
+# Default ATT MTU. A plain Write Request or notification carries at most
+# ``ATT_MTU - 3`` value bytes, and the official app never negotiates more.
 DEFAULT_MTU: Final = 23
+MAX_PAYLOAD_BYTES: Final = DEFAULT_MTU - 3  # = 20
 
 
 # ---------------------------------------------------------------------------
@@ -33,6 +35,26 @@ FN_WRITE: Final = 0x01
 
 # Single-byte ACK returned after a successful write.
 WRITE_ACK_OK: Final = 0x00
+
+# Nonzero reply statuses the official app names (``readCharacteristic``).
+# Other nonzero values are possible but undocumented.
+DEVICE_ERRORS: Final[dict[int, str]] = {
+    11: "read: wrong slave",
+    12: "read: wrong function",
+    13: "read: wrong register",
+    14: "read: wrong length",
+    15: "write: wrong slave",
+    16: "write: wrong function",
+    17: "write: wrong register",
+    18: "write: CRC wrong (internal base/panel link)",
+    19: "write: wrong length",
+    20: "character timeout between base and panel",
+}
+
+# The app's ``enterDFU`` writes exactly these bytes to the normal write
+# characteristic, which presumably puts the panel into firmware-update
+# mode. Never send them.
+DFU_MAGIC: Final = bytes.fromhex("deadbeef")
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +125,8 @@ MAX_STEP_SECONDS: Final = 0xFFFF
 # Limits derived from disassembly + wire observation.
 # ---------------------------------------------------------------------------
 
-# Maximum number of u16 values that can fit in a single read or write
-# request given the default 23-byte MTU.
-MAX_REGISTERS_PER_PACKET: Final = (DEFAULT_MTU - 5) // 2  # = 9
+# Register counts that keep requests and replies within one default-MTU
+# payload: a write is 5 header bytes + 2 per word, a read reply is 2 + 2 per
+# word. The official app never writes more than 7 words at once.
+MAX_WRITE_REGISTERS: Final = (MAX_PAYLOAD_BYTES - 5) // 2  # = 7
+MAX_READ_REGISTERS: Final = (MAX_PAYLOAD_BYTES - 2) // 2  # = 9
