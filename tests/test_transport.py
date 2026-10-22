@@ -34,7 +34,7 @@ class FakeGatt:
         self.notify = callback
 
     async def stop_notify(self, _uuid: str) -> None:
-        pass
+        self.notify = None
 
     async def disconnect(self) -> None:
         self.disconnected = True
@@ -79,15 +79,31 @@ async def test_unsolicited_notification_is_dropped() -> None:
 
 
 async def test_timeout_forces_a_reconnect(monkeypatch: pytest.MonkeyPatch) -> None:
-    vmx, gatt = connected([None, bytes.fromhex("02000200")])
-    monkeypatch.setattr(client_module, "BleakClient", lambda *_a, **_kw: gatt)
+    vmx, first = connected([None])
+    second = FakeGatt([bytes.fromhex("02000200")])
+    monkeypatch.setattr(client_module, "BleakClient", lambda *_a, **_kw: second)
     with pytest.raises(VitamixTimeoutError):
         await vmx.read_registers(0x0100, 1)
     # A late reply to the timed-out request could otherwise answer the next
-    # one, so the next request runs on a fresh connection.
+    # one, so the next request runs on a fresh connection; the old one can no
+    # longer deliver notifications.
     assert await vmx.read_registers(0x0100, 1) == [2]
-    assert gatt.disconnected
-    assert gatt.connects == 1
+    assert first.disconnected
+    assert first.notify is None
+    assert second.connects == 1
+
+
+async def test_cancelled_request_forces_a_reconnect(monkeypatch: pytest.MonkeyPatch) -> None:
+    vmx, first = connected([None], timeout=5)
+    second = FakeGatt([bytes.fromhex("02000200")])
+    monkeypatch.setattr(client_module, "BleakClient", lambda *_a, **_kw: second)
+    task = asyncio.create_task(vmx.read_registers(0x0100, 1))
+    await asyncio.sleep(0.01)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert await vmx.read_registers(0x0100, 1) == [2]
+    assert first.disconnected
 
 
 async def test_notify_setup_failure_disconnects(monkeypatch: pytest.MonkeyPatch) -> None:

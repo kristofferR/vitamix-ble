@@ -551,6 +551,9 @@ class VitamixClient:
                 raise VitamixTimeoutError(
                     f"no response to {request.hex()} within {timeout}s"
                 ) from exc
+            except asyncio.CancelledError:
+                self._stale = True  # the reply may still arrive
+                raise
             finally:
                 self._pending = None
 
