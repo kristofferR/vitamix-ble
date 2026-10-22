@@ -22,6 +22,7 @@ class FakeGatt:
         self.is_connected = True
         self.disconnected = False
         self.fail_notify = False
+        self.fail_write = False
         self.connects = 0
 
     async def connect(self) -> None:
@@ -42,6 +43,8 @@ class FakeGatt:
 
     async def write_gatt_char(self, _uuid: str, data: bytes, *, response: bool) -> None:
         self.writes.append(bytes(data))
+        if self.fail_write:
+            raise RuntimeError("write failed after sending")
         reply = self.replies.pop(0)
         if reply is not None:
             assert self.notify is not None
@@ -102,6 +105,17 @@ async def test_cancelled_request_forces_a_reconnect(monkeypatch: pytest.MonkeyPa
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+    assert await vmx.read_registers(0x0100, 1) == [2]
+    assert first.disconnected
+
+
+async def test_failed_write_forces_a_reconnect(monkeypatch: pytest.MonkeyPatch) -> None:
+    vmx, first = connected([])
+    first.fail_write = True
+    second = FakeGatt([bytes.fromhex("02000200")])
+    monkeypatch.setattr(client_module, "BleakClient", lambda *_a, **_kw: second)
+    with pytest.raises(RuntimeError):
+        await vmx.read_registers(0x0100, 1)
     assert await vmx.read_registers(0x0100, 1) == [2]
     assert first.disconnected
 

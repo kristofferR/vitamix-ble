@@ -116,7 +116,10 @@ class VitamixClient:
                 with retries via ``bleak-retry-connector``) or an address.
             connect_timeout: Timeout for address-only connections. With a
                 :class:`BLEDevice`, ``bleak-retry-connector`` sets the
-                per-attempt timeout and ``connect_attempts`` the retries.
+                per-attempt timeout.
+            connect_attempts: The connector's ``max_attempts``. It caps
+                timeouts and hard failures; the connector retries transient
+                errors (device not found, no free slot) up to its own limit.
         """
         self._ble_device = ble_device
         self._slave = slave
@@ -551,8 +554,9 @@ class VitamixClient:
                 raise VitamixTimeoutError(
                     f"no response to {request.hex()} within {timeout}s"
                 ) from exc
-            except asyncio.CancelledError:
-                self._stale = True  # the reply may still arrive
+            except BaseException:
+                # Failed or cancelled after sending: the reply may still arrive.
+                self._stale = True
                 raise
             finally:
                 self._pending = None
