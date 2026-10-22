@@ -139,6 +139,12 @@ class TestUploadProgram:
         with pytest.raises(ValueError, match="75 s"):
             await attach(blender, device_info=B_INFO).upload_program(steps)
 
+    async def test_unknown_container_rejected(self) -> None:
+        blender = b_blender(container=9)
+        with pytest.raises(VitamixUnsupportedError, match="unknown container"):
+            await attach(blender, device_info=B_INFO).upload_program(HALF_MINUTE)
+        assert writes(blender) == []
+
     async def test_refused_while_running(self) -> None:
         with pytest.raises(VitamixUnsupportedError, match="motor"):
             await attach(b_blender(motor=1), device_info=B_INFO).upload_program(HALF_MINUTE)

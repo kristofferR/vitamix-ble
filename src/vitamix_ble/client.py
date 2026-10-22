@@ -509,7 +509,7 @@ class VitamixClient:
             ValueError: for an invalid program, or one the container does not
                 allow (too long, or blending on the food processor).
             VitamixUnsupportedError: while the motor runs or its state is
-                unknown, or without a known container.
+                unknown, or without a recognised container.
         """
         async with self._operation_lock:
             info = await self._require_info()
@@ -522,15 +522,16 @@ class VitamixClient:
                 )
             words = encode_program(steps, info.panel)
             container = lookup_container(container_id)
-            if container is not None:
-                if not container.blend_supported:
-                    raise ValueError(f"{container.name} does not support blend programs")
-                seconds = program_seconds(steps)
-                if seconds > container.max_runtime_s:
-                    raise ValueError(
-                        f"{seconds} s exceeds the {container.max_runtime_s} s limit"
-                        f" for the {container.name}"
-                    )
+            if container is None:
+                raise VitamixUnsupportedError(f"unknown container id {container_id}")
+            if not container.blend_supported:
+                raise ValueError(f"{container.name} does not support blend programs")
+            seconds = program_seconds(steps)
+            if seconds > container.max_runtime_s:
+                raise ValueError(
+                    f"{seconds} s exceeds the {container.max_runtime_s} s limit"
+                    f" for the {container.name}"
+                )
             # Held across every write so a concurrent cancel or upload
             # cannot interleave with this panel's ordered sequence.
             for slave, register, values in upload_requests(info.panel, words, container_id):
