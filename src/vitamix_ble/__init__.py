@@ -43,6 +43,7 @@ from .const import (
 )
 from .containers import CONTAINERS, Container, lookup_container
 from .models import BlenderState, DeviceInfo, PanelType, VitamixState
+from .program import ProgramStep, encode_program
 from .protocol import (
     PacketStatus,
     decode_read_response,
@@ -67,6 +68,7 @@ __all__ = [
     "DeviceInfo",
     "PacketStatus",
     "PanelType",
+    "ProgramStep",
     "VitamixClient",
     "VitamixError",
     "VitamixReadRejectedError",
@@ -77,6 +79,7 @@ __all__ = [
     "VitamixWriteRejectedError",
     "decode_read_response",
     "decode_write_response",
+    "encode_program",
     "encode_read",
     "encode_write",
     "lookup_container",

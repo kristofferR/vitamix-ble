@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from types import TracebackType
 from typing import Self
@@ -61,6 +61,13 @@ from .const import (
 )
 from .containers import lookup_container
 from .models import BlenderState, DeviceInfo, PanelType, VitamixState
+from .program import (
+    ProgramStep,
+    cancel_request,
+    encode_program,
+    program_seconds,
+    upload_requests,
+)
 from .protocol import (
     PacketStatus,
     ProtocolError,
@@ -137,6 +144,7 @@ class VitamixClient:
         request_timeout: float = DEFAULT_REQUEST_TIMEOUT,
         connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
         connect_attempts: int = DEFAULT_CONNECT_ATTEMPTS,
+        experimental: bool = False,
     ) -> None:
         """Create a client.
 
@@ -151,14 +159,18 @@ class VitamixClient:
             connect_attempts: The connector's ``max_attempts``. It caps
                 timeouts and hard failures; the connector retries transient
                 errors (device not found, no free slot) up to its own limit.
+            experimental: Enable the legacy motor-control methods, which the
+                official app does not use.
         """
+        self._experimental = experimental
         self._ble_device = ble_device
         self._info = device_info
         self._request_timeout = request_timeout
         self._connect_timeout = connect_timeout
         self._connect_attempts = connect_attempts
         self._client: BleakClient | None = None
-        self._lock = asyncio.Lock()
+        self._lock = asyncio.Lock()  # one request on the wire at a time
+        self._operation_lock = asyncio.Lock()  # one multi-request operation at a time
         self._pending: asyncio.Future[bytes] | None = None
         self._stale = False  # a request timed out; its reply may still arrive
         self._generation = 0  # bumped per connection; older callbacks are ignored
@@ -437,64 +449,129 @@ class VitamixClient:
             summary = BlenderState.IDLE
         return _awake(summary, container_id, motor, recipe)
 
-    async def cancel_program(self) -> PacketStatus:
-        """Send the official "cancel current program" command.
+    async def cancel_program(self, *, assume_motor_stopped: bool = False) -> PacketStatus:
+        """Cancel the loaded program, as the app's ``cancelCurrentProgram`` does.
 
-        This is the same packet the Vitamix Perfect Blend app emits in
-        ``cancelCurrentProgram`` for C-panel devices. Idempotent if the
-        device is already idle.
-        """
-        return await self.write_register(REG_RECIPE, 0)
-
-    async def load_program(self, slot: int) -> PacketStatus:
-        """Arm a saved program slot.
-
-        The Ascent / Venturist series ships with several factory program
-        slots (Smoothie, Frozen Dessert, Spreads…). Writing the slot
-        number to register :data:`REG_RECIPE` is the same primitive the
-        Perfect Blend app's ``setBlenderProgram`` uses as the very last
-        step after staging the program-step buffer.
-
-        For built-in saved programs the staging is unnecessary because
-        the firmware already has them, so this single write is enough to
-        select the slot.
-
-        Whether the motor *also* spins immediately depends on whether
-        the user has the dial in an "armed" position (see
-        :data:`REG_PANEL_ARMED`). On an idle / un-armed device the slot
-        is just primed; the user still has to physically engage Start.
+        The app never cancels while the motor runs, and on C-panels only when
+        the Thread firmware is known and not 1.4. This is not a motor stop.
 
         Args:
-            slot: 1-indexed saved-program slot. ``0`` is reserved for
-                "no program" — use :meth:`cancel_program` for that to
-                make intent explicit.
+            assume_motor_stopped: Proceed when the panel cannot report the
+                motor state (old B). Only pass this if you know it is stopped.
+
+        Raises:
+            VitamixUnsupportedError: when the app would not send a cancel.
+        """
+        async with self._operation_lock:
+            info = await self._require_info()
+            if not info.can_cancel:
+                raise VitamixUnsupportedError("this panel's firmware does not accept cancel")
+            await self._require_stopped(assume_motor_stopped)
+            slave, register, values = cancel_request(info.panel)
+            return await self.write_registers(register, values, slave=slave)
+
+    async def _require_stopped(self, assume_motor_stopped: bool) -> VitamixState:
+        state = await self.read_state()
+        if state.motor_running:
+            raise VitamixUnsupportedError("the official app never writes while the motor runs")
+        if state.motor_running is None and not assume_motor_stopped:
+            raise VitamixUnsupportedError(
+                "this panel cannot report the motor state; pass assume_motor_stopped=True"
+                " only if the motor is stopped"
+            )
+        return state
+
+    async def upload_program(
+        self,
+        steps: Sequence[ProgramStep],
+        *,
+        container_id: int | None = None,
+        assume_motor_stopped: bool = False,
+    ) -> None:
+        """Upload a custom program the way the official app does.
+
+        The program is checked against the attached container, then written
+        with the panel's own sequence. The blender then waits for the user
+        to press start (B-panels: turn the dial to 1 first).
+
+        When the container changes, the official app re-uploads its program
+        if the new container is the expected one and cancels otherwise. This
+        method leaves that policy to the caller.
+
+        Args:
+            steps: Up to four steps (steps over 240 s count as several).
+            container_id: Override the detected container. Required on old-B
+                panels, which cannot report it.
+            assume_motor_stopped: Proceed when the panel cannot report the
+                motor state (old B). Only pass this if you know it is stopped.
+
+        Raises:
+            ValueError: for an invalid program, or one the container does not
+                allow (too long, or blending on the food processor).
+            VitamixUnsupportedError: while the motor runs or its state is
+                unknown, or without a recognised container.
+        """
+        async with self._operation_lock:
+            info = await self._require_info()
+            state = await self._require_stopped(assume_motor_stopped)
+            if container_id is None:
+                container_id = state.container_id
+            if container_id is None:
+                raise VitamixUnsupportedError(
+                    "no container detected; attach one or pass container_id"
+                )
+            words = encode_program(steps, info.panel)
+            container = lookup_container(container_id)
+            if container is None:
+                raise VitamixUnsupportedError(f"unknown container id {container_id}")
+            if not container.blend_supported:
+                raise ValueError(f"{container.name} does not support blend programs")
+            seconds = program_seconds(steps)
+            if seconds > container.max_runtime_s:
+                raise ValueError(
+                    f"{seconds} s exceeds the {container.max_runtime_s} s limit"
+                    f" for the {container.name}"
+                )
+            # Held across every write so a concurrent cancel or upload
+            # cannot interleave with this panel's ordered sequence.
+            for slave, register, values in upload_requests(info.panel, words, container_id):
+                await self.write_registers(register, values, slave=slave)
+
+    # -- experimental legacy motor control ------------------------------------
+    #
+    # Earlier versions drove the motor by writing (dial speed, seconds) pairs
+    # to 0x67/0x0201.. and a step-count mask to 0x3483. The official app does
+    # none of this: it has no remote start, its stopBlender() is empty, and it
+    # never cancels while the motor runs. These methods are kept for
+    # experimentation and require ``VitamixClient(..., experimental=True)``.
+    # Do not rely on them, and do not treat stop_motor() as a safety stop.
+
+    def _require_experimental(self, name: str) -> None:
+        if not self._experimental:
+            raise VitamixUnsupportedError(
+                f"{name}() is experimental; create the client with experimental=True"
+            )
+
+    async def load_program(self, slot: int) -> PacketStatus:
+        """Experimental: write ``slot`` to ``0x67/0x0200``.
+
+        In the official app this register is a recipe *state* (B-panels:
+        3 = program ready), not a saved-program slot, and no code path
+        selects factory programs by number.
 
         Raises:
             ValueError: if ``slot`` is not strictly positive.
-            VitamixWriteRejectedError: if the firmware rejects the
-                write (e.g. invalid slot number for this model).
         """
+        self._require_experimental("load_program")
         if slot <= 0:
             raise ValueError(f"slot must be >= 1; use cancel_program() for slot 0 (got {slot})")
         return await self.write_register(REG_RECIPE, slot)
-
-    # -- custom-program / motor control (0.3.0+) ----------------------------
-    #
-    # The Ascent C-panel exposes a 12-u16 "scratch" program buffer at
-    # registers 0x0201..0x020C and fires the staged buffer when a bitmask
-    # is written to register 0x3483 (REG_PROGRAM_FLAG). Each step is a
-    # (speed, time) pair, so we can build anything from a single
-    # constant-speed run to a 6-step recipe by uploading the buffer and
-    # then writing ``1 << (step_count - 1)`` to REG_PROGRAM_FLAG.
-    #
-    # Speed values use the same 0..10 dial scale the firmware exposes on
-    # its physical interface; time values are in seconds.
 
     async def upload_custom_program(
         self,
         steps: list[tuple[int, int]] | tuple[tuple[int, int], ...],
     ) -> None:
-        """Stage a custom program of up to 6 (speed, time) steps.
+        """Experimental: stage up to 6 legacy (dial speed, seconds) steps.
 
         This writes the step buffer to registers 0x0201.. but does NOT
         start the program — call :meth:`commit_custom_program` (or one of
@@ -511,6 +588,7 @@ class VitamixClient:
             ValueError: if ``steps`` is empty, contains too many entries,
                 or has speed/time values outside the supported range.
         """
+        self._require_experimental("upload_custom_program")
         self._validate_steps(steps)
         # Flatten into the wire layout: [speed_0, time_0, speed_1, ...].
         payload: list[int] = []
@@ -528,11 +606,10 @@ class VitamixClient:
             await self.write_registers(REG_CUSTOM_PROGRAM_BASE + offset, slice_)
 
     async def commit_custom_program(self, step_count: int) -> PacketStatus:
-        """Fire the staged custom program.
+        """Experimental: write the legacy step-count mask to ``0x67/0x3483``.
 
-        Writes ``1 << (step_count - 1)`` to :data:`REG_PROGRAM_FLAG`. The
-        firmware uses the bitmask both as a "go" trigger and as the
-        step-count signal, mirroring the official app's panel-2 path.
+        Writes ``1 << (step_count - 1)``. The official app writes a
+        *container* mask here instead (see :meth:`upload_program`).
 
         Args:
             step_count: must match the number of populated steps from the
@@ -541,6 +618,7 @@ class VitamixClient:
         Raises:
             ValueError: if ``step_count`` is not in 1..6.
         """
+        self._require_experimental("commit_custom_program")
         if not 1 <= step_count <= CUSTOM_PROGRAM_MAX_STEPS:
             raise ValueError(f"step_count must be 1..{CUSTOM_PROGRAM_MAX_STEPS} (got {step_count})")
         bitmask = 1 << (step_count - 1)
@@ -550,7 +628,7 @@ class VitamixClient:
         self,
         steps: list[tuple[int, int]] | tuple[tuple[int, int], ...],
     ) -> PacketStatus:
-        """Upload + commit a custom program in one shot.
+        """Experimental: upload + commit a legacy custom program in one shot.
 
         Equivalent to::
 
@@ -567,7 +645,7 @@ class VitamixClient:
         *,
         duration_seconds: int = MAX_STEP_SECONDS,
     ) -> PacketStatus:
-        """Run the motor at ``speed`` for up to ``duration_seconds``.
+        """Experimental: run the motor at dial ``speed`` for ``duration_seconds``.
 
         Internally this stages and fires a 1-step custom program. Calling
         :meth:`set_motor_speed` again while the motor is already running
@@ -585,6 +663,7 @@ class VitamixClient:
         Raises:
             ValueError: if ``speed`` is out of range.
         """
+        self._require_experimental("set_motor_speed")
         if speed == 0:
             return await self.stop_motor()
         if not MIN_SPEED <= speed <= MAX_SPEED:
@@ -601,7 +680,7 @@ class VitamixClient:
         *,
         duration_seconds: int = MAX_STEP_SECONDS,
     ) -> PacketStatus:
-        """Start the motor at ``speed`` (alias for :meth:`set_motor_speed`).
+        """Experimental: alias for :meth:`set_motor_speed`.
 
         Defaults to a mid-range Variable-5 so a bare ``start_motor()``
         call is gentle enough not to launch ingredients out of an open
@@ -610,14 +689,13 @@ class VitamixClient:
         return await self.set_motor_speed(speed, duration_seconds=duration_seconds)
 
     async def stop_motor(self) -> PacketStatus:
-        """Stop the motor.
+        """Experimental: write 0 to ``0x67/0x0200`` regardless of motor state.
 
-        Identical wire packet to :meth:`cancel_program` (writes 0 to
-        REG_RECIPE) — the firmware halts the motor as a side-effect of
-        unloading the program. Kept as a separate name so high-level
-        callers can express intent unambiguously.
+        The official app never sends this while the motor runs, so whether it
+        stops a running motor is unverified. Not a safety stop.
         """
-        return await self.cancel_program()
+        self._require_experimental("stop_motor")
+        return await self.write_register(REG_RECIPE, 0)
 
     async def play_melody(
         self,
@@ -626,7 +704,7 @@ class VitamixClient:
         gap_seconds: float = 0.0,
         stop_when_done: bool = True,
     ) -> None:
-        """Play a sequence of (speed, duration_seconds) "notes".
+        """Experimental: play a sequence of (dial speed, seconds) "notes".
 
         Each note re-stages a 1-step custom program at the requested
         speed, runs it for the requested duration, then advances. This
@@ -648,6 +726,7 @@ class VitamixClient:
             ValueError: if ``notes`` is empty, or any speed/duration is
                 out of range.
         """
+        self._require_experimental("play_melody")
         if not notes:
             raise ValueError("notes must not be empty")
         for speed, seconds in notes:

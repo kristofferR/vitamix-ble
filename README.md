@@ -15,8 +15,8 @@ library.
 > [!IMPORTANT]
 > This is an **unofficial** project. It is not endorsed by, affiliated
 > with, or supported by Vita-Mix Corporation. Use at your own risk.
-> Writes that arm a saved program slot can cause the blade to spin if
-> the user subsequently presses Start, so keep your hands clear.
+> An uploaded program runs when someone presses start on the blender,
+> so keep hands clear. Experimental motor commands are unverified.
 
 ## Status
 
@@ -88,13 +88,26 @@ so they are only shown by `--raw`.
 
 ## What you can do
 
-The official app's commands are exposed as high-level methods. Today:
+Writes follow the official app's `setBlenderProgram` and
+`cancelCurrentProgram`:
 
-- `await vmx.cancel_program()` — sends the canonical "cancel current
-  program" packet (writes `0x0000` to register `0x0200`). Idempotent on
-  an idle device.
-- `await vmx.read_registers(reg, count)` and `await vmx.write_registers(reg, values)`
-  — low-level escape hatches.
+- `await vmx.upload_program([ProgramStep(power=0.5, seconds=60)])` encodes
+  up to four steps (normalized power 0..1, whole seconds, ramp) the way the
+  app does, checks them against the attached container (time limit, no
+  blending on the food processor) and uploads them with the panel's own
+  sequence. The blender then waits for you to press start; B-panels want
+  the dial on 1 first.
+- `await vmx.cancel_program()` unloads the program. Like the app, it
+  refuses while the motor runs, and on C-panels with Thread firmware 1.4.
+- `await vmx.read_registers(reg, count, slave=...)` and
+  `await vmx.write_registers(reg, values, slave=...)` are low-level escape
+  hatches.
+
+The app has **no remote start, live speed control or remote stop**: its
+`stopBlender()` is empty. The older `set_motor_speed`, `start_motor`,
+`stop_motor`, `play_melody` and `load_program` helpers write registers the
+app never uses this way. They need `VitamixClient(..., experimental=True)`,
+and `stop_motor()` is not a safety stop.
 
 ## Wire protocol
 
