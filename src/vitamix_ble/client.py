@@ -25,6 +25,10 @@ from bleak.backends.device import BLEDevice
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 
 from .const import (
+    B_MODELS,
+    C_MODEL_OTHER,
+    C_MODELS,
+    C_RECIPE_STATE_MARKER,
     CUSTOM_PROGRAM_MAX_STEPS,
     DFU_MAGIC,
     MAX_SPEED,
@@ -32,19 +36,31 @@ from .const import (
     MAX_WRITE_REGISTERS,
     MIN_SPEED,
     NOTIFY_CHARACTERISTIC_UUID,
+    RECIPE_C_PRESS_PULSE,
+    RECIPE_C_READY,
+    RECIPE_READY,
+    REG_B_CONTAINER,
+    REG_B_MODEL,
+    REG_BLE_POWER,
+    REG_C_CONTAINER_ID,
+    REG_C_CONTAINER_PRESENT,
+    REG_C_MODEL,
+    REG_C_RECIPE_STATE,
+    REG_C_THREAD_FIRMWARE,
     REG_CUSTOM_PROGRAM_BASE,
-    REG_MOTOR_MAX_RPM,
-    REG_MOTOR_RATED_W,
-    REG_MOTOR_RUN,
-    REG_NFC_HARDWARE,
-    REG_PANEL_ARMED,
+    REG_FIRMWARE,
+    REG_MOTOR,
     REG_PROGRAM_FLAG,
     REG_RECIPE,
-    SLAVE_CPANEL,
+    REG_SLEEP,
+    SLAVE_B,
+    SLAVE_C_NORDIC,
+    SLAVE_C_NXP,
+    SLAVE_C_SAMD,
     WRITE_CHARACTERISTIC_UUID,
 )
 from .containers import lookup_container
-from .models import VitamixState
+from .models import BlenderState, DeviceInfo, PanelType, VitamixState
 from .protocol import (
     PacketStatus,
     ProtocolError,
@@ -64,6 +80,15 @@ DEFAULT_REQUEST_TIMEOUT = 10.0
 DEFAULT_SCAN_TIMEOUT = 30.0
 DEFAULT_CONNECT_TIMEOUT = 30.0
 DEFAULT_CONNECT_ATTEMPTS = 3
+# Panel detection: the app waits 2 s for the C-panel probe (a timeout means
+# B) and re-sends it after an error reply.
+DETECTION_TIMEOUT = 2.0
+DETECTION_ATTEMPTS = 3
+# The app only accepts a C container id after this many identical reads.
+C_CONTAINER_SAMPLES = 3
+
+_SLEEPING = VitamixState(BlenderState.SLEEPING, True, None, None, None, False, None)
+_NO_CONTAINER = VitamixState(BlenderState.NO_CONTAINER, False, False, None, None, False, None)
 
 
 class VitamixError(RuntimeError):
@@ -89,6 +114,10 @@ class VitamixReadRejectedError(VitamixRejectedError):
         super().__init__(code, "read")
 
 
+class VitamixUnsupportedError(VitamixError):
+    """Raised for panels or operations the official app does not support."""
+
+
 class VitamixWriteRejectedError(VitamixRejectedError):
     """Raised when the device returns a nonzero status for a write."""
 
@@ -104,7 +133,7 @@ class VitamixClient:
         self,
         ble_device: BLEDevice | str,
         *,
-        slave: int = SLAVE_CPANEL,
+        device_info: DeviceInfo | None = None,
         request_timeout: float = DEFAULT_REQUEST_TIMEOUT,
         connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
         connect_attempts: int = DEFAULT_CONNECT_ATTEMPTS,
@@ -114,6 +143,8 @@ class VitamixClient:
         Args:
             ble_device: A discovered :class:`BLEDevice` (preferred; connects
                 with retries via ``bleak-retry-connector``) or an address.
+            device_info: A previous :meth:`identify` result for this device,
+                to skip identification on short-lived connections.
             connect_timeout: Timeout for address-only connections. With a
                 :class:`BLEDevice`, ``bleak-retry-connector`` sets the
                 per-attempt timeout.
@@ -122,7 +153,7 @@ class VitamixClient:
                 errors (device not found, no free slot) up to its own limit.
         """
         self._ble_device = ble_device
-        self._slave = slave
+        self._info = device_info
         self._request_timeout = request_timeout
         self._connect_timeout = connect_timeout
         self._connect_attempts = connect_attempts
@@ -220,10 +251,17 @@ class VitamixClient:
 
     # -- low-level register IO ---------------------------------------------
 
-    async def read_registers(self, register: int, count: int = 1) -> list[int]:
+    async def read_registers(
+        self,
+        register: int,
+        count: int = 1,
+        *,
+        slave: int = SLAVE_B,
+        timeout: float | None = None,
+    ) -> list[int]:
         """Read ``count`` consecutive 16-bit registers starting at ``register``."""
-        request = encode_read(register, count, slave=self._slave)
-        response = await self._exchange(request)
+        request = encode_read(register, count, slave=slave)
+        response = await self._exchange(request, timeout)
         try:
             values, status = decode_read_response(response, count)
         except ReplyStatusError as exc:
@@ -239,51 +277,165 @@ class VitamixClient:
             )
         return values
 
-    async def read_register(self, register: int) -> int:
+    async def read_register(self, register: int, *, slave: int = SLAVE_B) -> int:
         """Convenience: read a single register and return its value."""
-        return (await self.read_registers(register, 1))[0]
+        return (await self.read_registers(register, 1, slave=slave))[0]
 
     async def write_registers(
-        self, register: int, values: list[int] | tuple[int, ...]
+        self,
+        register: int,
+        values: list[int] | tuple[int, ...],
+        *,
+        slave: int = SLAVE_B,
     ) -> PacketStatus:
         """Write one or more 16-bit values starting at ``register``.
 
         Raises:
-            VitamixWriteRejected: if the firmware returned a non-zero status
-                code (Modbus-style exception).
+            VitamixWriteRejectedError: if the device returned a nonzero status.
         """
-        request = encode_write(register, values, slave=self._slave)
+        request = encode_write(register, values, slave=slave)
         response = await self._exchange(request)
         status = decode_write_response(response)
         if not status.ok:
             raise VitamixWriteRejectedError(status)
         return status
 
-    async def write_register(self, register: int, value: int) -> PacketStatus:
+    async def write_register(
+        self, register: int, value: int, *, slave: int = SLAVE_B
+    ) -> PacketStatus:
         """Convenience wrapper around :meth:`write_registers`."""
-        return await self.write_registers(register, [value])
+        return await self.write_registers(register, [value], slave=slave)
 
     # -- high-level helpers -------------------------------------------------
 
-    async def read_state(self) -> VitamixState:
-        """Read enough registers to reconstruct a :class:`VitamixState`."""
-        motor_run = await self.read_register(REG_MOTOR_RUN)
-        max_rpm, rated_rpm = (await self.read_registers(REG_MOTOR_MAX_RPM, 2))[0:2]
-        rated_w = await self.read_register(REG_MOTOR_RATED_W)
-        recipe = await self.read_register(REG_RECIPE)
-        armed = await self.read_register(REG_PANEL_ARMED)
-        nfc = await self.read_registers(REG_NFC_HARDWARE, 2)
-        container_hw = nfc[0]
-        return VitamixState(
-            motor_running=bool(motor_run),
-            armed=bool(armed),
-            container=lookup_container(container_hw),
-            container_hardware_id=container_hw,
-            recipe_slot=recipe,
-            rated_power_w=rated_w,
-            max_rpm=max_rpm,
-            rated_rpm=rated_rpm,
+    @property
+    def device_info(self) -> DeviceInfo | None:
+        """The last :meth:`identify` result, if any."""
+        return self._info
+
+    async def identify(self) -> DeviceInfo:
+        """Detect the panel type, model and firmware like the official app.
+
+        Read-only: the app also writes the BLE power register here, which
+        this method skips. A C-panel answers the first probe; a timeout
+        means B; an error reply is retried.
+        """
+        for _ in range(DETECTION_ATTEMPTS):
+            try:
+                (model_code,) = await self.read_registers(
+                    REG_C_MODEL, slave=SLAVE_C_SAMD, timeout=DETECTION_TIMEOUT
+                )
+            except VitamixTimeoutError:
+                info = await self._identify_b()
+                break
+            except VitamixRejectedError as err:
+                _LOGGER.debug("panel probe failed, retrying: %s", err)
+                continue
+            info = await self._identify_c(model_code)
+            break
+        else:
+            raise VitamixError("panel detection failed: every probe returned an error")
+        self._info = info
+        return info
+
+    async def _identify_c(self, model_code: int) -> DeviceInfo:
+        firmware: dict[str, tuple[int, ...]] = {}
+        for name, slave, register, count in (
+            ("samd", SLAVE_C_SAMD, REG_FIRMWARE, 2),
+            ("thread", SLAVE_C_SAMD, REG_C_THREAD_FIRMWARE, 3),
+            ("nxp", SLAVE_C_NXP, REG_FIRMWARE, 2),
+            ("nordic", SLAVE_C_NORDIC, REG_FIRMWARE, 2),
+        ):
+            words = await self._optional_read(register, count, slave)
+            if words is not None:
+                firmware[name] = words
+        return DeviceInfo(
+            panel=PanelType.C,
+            model=C_MODELS.get(model_code, C_MODEL_OTHER),
+            model_code=model_code,
+            firmware=firmware,
+            ble_power=await self._optional_read(REG_BLE_POWER, 2, SLAVE_C_NORDIC),
         )
+
+    async def _identify_b(self) -> DeviceInfo:
+        ble_power = await self._optional_read(REG_BLE_POWER, 2, SLAVE_B)
+        model_code = await self.read_register(REG_B_MODEL)
+        if model_code == 0:
+            return DeviceInfo(PanelType.OLD_B, None, 0, {}, ble_power)
+        return DeviceInfo(PanelType.B, B_MODELS.get(model_code), model_code, {}, ble_power)
+
+    async def _optional_read(self, register: int, count: int, slave: int) -> tuple[int, ...] | None:
+        try:
+            return tuple(await self.read_registers(register, count, slave=slave))
+        except VitamixError as err:  # rejected, timed out or malformed
+            _LOGGER.debug("optional read %#04x/%#06x failed: %s", slave, register, err)
+            return None
+
+    async def _require_info(self) -> DeviceInfo:
+        info = self._info or await self.identify()
+        if not info.supported:
+            raise VitamixUnsupportedError(f"unrecognised B-panel model 0x{info.model_code:04x}")
+        return info
+
+    async def read_ble_power(self) -> tuple[int, ...]:
+        """Read the BLE power register (raw words; units unknown)."""
+        info = await self._require_info()
+        slave = SLAVE_C_NORDIC if info.panel is PanelType.C else SLAVE_B
+        return tuple(await self.read_registers(REG_BLE_POWER, 2, slave=slave))
+
+    async def read_state(self) -> VitamixState:
+        """Poll the registers the official app polls for this panel."""
+        info = await self._require_info()
+        if info.panel is PanelType.C:
+            return await self._read_state_c(info)
+        if info.panel is PanelType.B:
+            return await self._read_state_b()
+        return VitamixState.unknown()
+
+    async def _read_state_c(self, info: DeviceInfo) -> VitamixState:
+        if await self.read_register(REG_SLEEP, slave=SLAVE_C_NORDIC) == 1:
+            return _SLEEPING
+        presence = await self.read_register(REG_C_CONTAINER_PRESENT, slave=SLAVE_C_NXP)
+        if presence == 0:
+            return _NO_CONTAINER
+        if presence != 1:
+            _LOGGER.debug("invalid NFC state %d", presence)
+            return VitamixState(BlenderState.UNKNOWN, False, None, None, None, None, None)
+        samples = {
+            await self.read_register(REG_C_CONTAINER_ID, slave=SLAVE_C_NXP)
+            for _ in range(C_CONTAINER_SAMPLES)
+        }
+        container_id = samples.pop() if len(samples) == 1 else None
+        motor = (await self.read_registers(REG_MOTOR, 5, slave=SLAVE_C_NORDIC))[0] == 1
+        recipe: int | None = None
+        if info.thread_1_4:
+            words = await self.read_registers(REG_C_RECIPE_STATE, 4, slave=SLAVE_C_SAMD)
+            recipe = words[1] if words[0] == C_RECIPE_STATE_MARKER else None
+        if motor:
+            summary = BlenderState.RUNNING
+        elif recipe == RECIPE_C_PRESS_PULSE:
+            summary = BlenderState.PRESS_PULSE
+        elif recipe == RECIPE_C_READY:
+            summary = BlenderState.READY
+        else:
+            summary = BlenderState.IDLE
+        return _awake(summary, container_id, motor, recipe)
+
+    async def _read_state_b(self) -> VitamixState:
+        if await self.read_register(REG_SLEEP) == 1:
+            return _SLEEPING
+        presence, container_id = await self.read_registers(REG_B_CONTAINER, 2)
+        if presence != 1:
+            return _NO_CONTAINER
+        motor = await self.read_register(REG_MOTOR) == 1
+        recipe = await self.read_register(REG_RECIPE)
+        if motor:
+            summary = BlenderState.RUNNING
+        elif recipe == RECIPE_READY:
+            summary = BlenderState.READY
+        else:
+            summary = BlenderState.IDLE
+        return _awake(summary, container_id, motor, recipe)
 
     async def cancel_program(self) -> PacketStatus:
         """Send the official "cancel current program" command.
@@ -577,6 +729,20 @@ class VitamixClient:
             _LOGGER.debug("dropping unsolicited or late notification %s", bytes(data).hex())
             return
         pending.set_result(bytes(data))
+
+
+def _awake(
+    summary: BlenderState, container_id: int | None, motor: bool, recipe: int | None
+) -> VitamixState:
+    return VitamixState(
+        state=summary,
+        sleeping=False,
+        container_present=True,
+        container_id=container_id,
+        container=None if container_id is None else lookup_container(container_id),
+        motor_running=motor,
+        recipe_state=recipe,
+    )
 
 
 @asynccontextmanager

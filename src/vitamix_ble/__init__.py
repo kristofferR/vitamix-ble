@@ -5,9 +5,9 @@ Ascent and Venturist series blenders (e.g. A2300/A2500/A3300/A3500,
 Venturist 330/350) — the ones with the "Self-Detect" containers
 and the Vitamix Perfect Blend companion app.
 
-This is a clean-room, observation-based implementation. Reads are
-non-destructive; writes are exposed only as the high-level commands
-that the official app actually uses.
+Protocol details follow the official app's behaviour, recovered from its
+native library: the panel type is detected at runtime and each panel is
+polled on its own registers. Reads are non-destructive.
 
 Quick start:
 
@@ -15,23 +15,34 @@ Quick start:
     from vitamix_ble import VitamixClient
 
     async def main() -> None:
-        async with VitamixClient.from_address("C9:FF:B3:03:1F:DF") as vmx:
-            state = await vmx.read_state()
-            print(state)
+        client = await VitamixClient.from_address("C9:FF:B3:03:1F:DF")
+        async with client as vmx:
+            print(await vmx.identify())
+            print(await vmx.read_state())
 
     asyncio.run(main())
 """
 
-from .client import VitamixClient
+from .client import (
+    VitamixClient,
+    VitamixError,
+    VitamixReadRejectedError,
+    VitamixRejectedError,
+    VitamixTimeoutError,
+    VitamixUnsupportedError,
+    VitamixWriteRejectedError,
+)
 from .const import (
     NOTIFY_CHARACTERISTIC_UUID,
     SERVICE_UUID,
-    SLAVE_BPANEL,
-    SLAVE_CPANEL,
+    SLAVE_B,
+    SLAVE_C_NORDIC,
+    SLAVE_C_NXP,
+    SLAVE_C_SAMD,
     WRITE_CHARACTERISTIC_UUID,
 )
 from .containers import CONTAINERS, Container, lookup_container
-from .models import VitamixState
+from .models import BlenderState, DeviceInfo, PanelType, VitamixState
 from .protocol import (
     PacketStatus,
     decode_read_response,
@@ -46,13 +57,24 @@ __all__ = [
     "CONTAINERS",
     "NOTIFY_CHARACTERISTIC_UUID",
     "SERVICE_UUID",
-    "SLAVE_BPANEL",
-    "SLAVE_CPANEL",
+    "SLAVE_B",
+    "SLAVE_C_NORDIC",
+    "SLAVE_C_NXP",
+    "SLAVE_C_SAMD",
     "WRITE_CHARACTERISTIC_UUID",
+    "BlenderState",
     "Container",
+    "DeviceInfo",
     "PacketStatus",
+    "PanelType",
     "VitamixClient",
+    "VitamixError",
+    "VitamixReadRejectedError",
+    "VitamixRejectedError",
     "VitamixState",
+    "VitamixTimeoutError",
+    "VitamixUnsupportedError",
+    "VitamixWriteRejectedError",
     "decode_read_response",
     "decode_write_response",
     "encode_read",

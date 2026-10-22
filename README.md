@@ -20,11 +20,13 @@ library.
 
 ## Status
 
-- Read protocol: **fully working** (validated on a live A3500-class device)
-- Write protocol: **fully working** for the cancel-program command and
-  for round-tripping arbitrary register values; higher-level program
-  authoring is a work in progress
-- Tested on Linux/BlueZ via [bleak](https://github.com/hbldh/bleak)
+- Panel detection and state polling follow the official Perfect Blend
+  app's behaviour, recovered from its native library. C-panel paths
+  (slaves 2/3/4) still need confirmation on real hardware: run
+  `python -m vitamix_ble <address> --raw` and share the output.
+- Program upload and motor control are a work in progress.
+- Tested on Linux/BlueZ via [bleak](https://github.com/hbldh/bleak) and
+  Home Assistant Bluetooth proxies.
 
 ## Install
 
@@ -44,41 +46,45 @@ from vitamix_ble import VitamixClient
 async def main() -> None:
     client = await VitamixClient.from_address("AA:BB:CC:DD:EE:FF")
     async with client as vmx:
-        state = await vmx.read_state()
-        print(state)
+        print(await vmx.identify())
+        print(await vmx.read_state())
 
 
 asyncio.run(main())
 ```
 
-Output (idle blender, 64 oz wet jar attached):
+`identify()` runs once per client and can be skipped on later connections
+by passing its result as `VitamixClient(device, device_info=info)`. Or from
+a shell: `python -m vitamix_ble AA:BB:CC:DD:EE:FF`.
 
-```
-VitamixState(motor_running=False, armed=True,
-             container=Container(hardware_id=1, name='Vitamix 64 oz Blender Jar with Self-Detect', ...),
-             container_hardware_id=1, recipe_slot=0,
-             rated_power_w=1200, max_rpm=12000, rated_rpm=5000)
-```
+## Panels
+
+The official app identifies the panel by reading `0x081a` on slave 2:
+
+| Outcome | Panel | Registers |
+|---|---|---|
+| reply | **C** (Ascent A3300/A3500) | slave 2 (main), 3 (NFC), 4 (radio) |
+| timeout | **B** (Ascent A2300/A2500, Venturist) | slave `0x67` |
+| timeout, B model word `0` | **old B** | slave `0x67`, no live telemetry |
 
 ## What you can read
 
-The blender exposes a register space that includes:
+`read_state()` polls what the app polls and returns a `BlenderState`
+(`sleeping`, `no_container`, `idle`, `press_pulse`, `ready`, `running`,
+`unknown`) plus the raw fields:
 
-| Register | Meaning |
-|----------|---------|
-| `0x0100` | Motor run flag (0/1) |
-| `0x0101` | Live blade RPM (jittery — sampled at high rate) |
-| `0x010A` | Max motor RPM (firmware constant, e.g. `12000`) |
-| `0x010B` | Rated continuous RPM (e.g. `5000`) |
-| `0x0111` | Max %                                          |
-| `0x0113` | Rated wattage (e.g. `1200` W)                  |
-| `0x0200` | Active program slot (`0` = idle)               |
-| `0x347F` | "Armed/ready" flag                             |
-| `0x3480` | Container hardware id (Self-Detect NFC)        |
+| Field | C-panel | B-panel |
+|---|---|---|
+| sleeping | `4/0x347F` == 1 | `0x67/0x347F` == 1 |
+| container present | `3/0x0F00` == 1 | `0x67/0x3480` word 0 == 1 |
+| container id | `3/0x3640` (3 matching reads) | `0x67/0x3480` word 1 |
+| motor running | `4/0x0100` word 0 == 1 | `0x67/0x0100` == 1 |
+| recipe state | `2/0x3220` word 1 if word 0 == 101 (Thread 1.4 only) | `0x67/0x0200` (3 = ready) |
 
-See `vitamix_ble.const` for the full list and `vitamix_ble.containers`
-for the hardware-id → name mapping (extracted from the official app's
-bundled SQLite database).
+`read_ble_power()` reads `0x34FC`, which the app sets to 9 during setup
+(units unknown). Earlier probing found plausible motor values at
+`0x67/0x0101`..`0x0113` (RPM, rated watts), but the app never reads them,
+so they are only shown by `--raw`.
 
 ## What you can do
 

@@ -44,7 +44,7 @@ from .const import (
     FN_WRITE,
     MAX_READ_REGISTERS,
     MAX_WRITE_REGISTERS,
-    SLAVE_CPANEL,
+    SLAVE_B,
 )
 
 __all__ = [
@@ -99,13 +99,13 @@ class PacketStatus:
 # ---------------------------------------------------------------------------
 
 
-def encode_read(register: int, count: int = 1, slave: int = SLAVE_CPANEL) -> bytes:
+def encode_read(register: int, count: int = 1, slave: int = SLAVE_B) -> bytes:
     """Build a read-registers request packet.
 
     Args:
         register: First register address (0..0xFFFF).
         count: Number of consecutive 16-bit registers to read.
-        slave: Bus slave address (defaults to the C-panel).
+        slave: Bus slave address (defaults to 0x67, used by B-panels).
 
     Returns:
         Raw packet bytes ready to write to the GATT write characteristic.
@@ -127,14 +127,14 @@ def encode_read(register: int, count: int = 1, slave: int = SLAVE_CPANEL) -> byt
 def encode_write(
     register: int,
     values: list[int] | tuple[int, ...],
-    slave: int = SLAVE_CPANEL,
+    slave: int = SLAVE_B,
 ) -> bytes:
     """Build a write-registers request packet.
 
     Args:
         register: First register address (0..0xFFFF).
         values: 16-bit values to write into ``register``, ``register+1``, …
-        slave: Bus slave address (defaults to the C-panel).
+        slave: Bus slave address (defaults to 0x67, used by B-panels).
 
     Returns:
         Raw packet bytes ready to write to the GATT write characteristic.
