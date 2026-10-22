@@ -130,6 +130,7 @@ class VitamixClient:
         self._lock = asyncio.Lock()
         self._pending: asyncio.Future[bytes] | None = None
         self._stale = False  # a request timed out; its reply may still arrive
+        self._generation = 0  # bumped per connection; older callbacks are ignored
 
     # -- construction ------------------------------------------------------
 
@@ -184,7 +185,16 @@ class VitamixClient:
             await self._client.connect()
         self._stale = False
         try:
-            await self._client.start_notify(NOTIFY_CHARACTERISTIC_UUID, self._on_notify)
+            self._generation += 1
+            generation = self._generation
+
+            def on_notify(characteristic: BleakGATTCharacteristic, data: bytearray) -> None:
+                if generation != self._generation:
+                    _LOGGER.debug("dropping notification from a previous connection")
+                    return
+                self._on_notify(characteristic, data)
+
+            await self._client.start_notify(NOTIFY_CHARACTERISTIC_UUID, on_notify)
             # Give the device a moment to settle before the first request.
             await asyncio.sleep(0.1)
         except BaseException:

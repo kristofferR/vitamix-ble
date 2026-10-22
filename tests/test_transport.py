@@ -120,6 +120,25 @@ async def test_failed_write_forces_a_reconnect(monkeypatch: pytest.MonkeyPatch) 
     assert first.disconnected
 
 
+async def test_old_connection_notifications_are_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first, second = FakeGatt([]), FakeGatt([bytes.fromhex("02000200")])
+    connections = iter([first, second])
+    monkeypatch.setattr(client_module, "BleakClient", lambda *_a, **_kw: next(connections))
+    vmx = VitamixClient("AA:BB:CC:DD:EE:FF", request_timeout=0.05)
+    await vmx.connect()
+    stale_callback = first.notify
+    assert stale_callback is not None
+    await vmx.disconnect()
+    await vmx.connect()
+    # A notification the old connection still delivers must not answer a
+    # request on the new one.
+    vmx._pending = asyncio.get_running_loop().create_future()
+    stale_callback(None, bytearray(bytes.fromhex("02000100")))
+    assert not vmx._pending.done()
+
+
 async def test_notify_setup_failure_disconnects(monkeypatch: pytest.MonkeyPatch) -> None:
     gatt = FakeGatt([])
     gatt.fail_notify = True
