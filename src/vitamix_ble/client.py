@@ -1,9 +1,12 @@
 """Async :class:`VitamixClient` — a thin wrapper around :mod:`bleak`.
 
-Exchanges are correlated by sequencing them: only one outstanding
-request per connection, so the next notify is always the response.
-That matches the firmware behaviour we observed (no asynchronous
-push-notifications in normal operation; the official app polls).
+Replies carry no transaction id, so exchanges are correlated by
+sequencing them: one outstanding request per connection, and any
+notification that arrives while nothing is pending is dropped. After a
+timeout the client reconnects before its next request, because the late
+reply could otherwise be taken as that request's answer. The official app
+also polls one request at a time; the device sends no unsolicited
+notifications in normal operation.
 """
 
 from __future__ import annotations
@@ -17,7 +20,9 @@ from types import TracebackType
 from typing import Self
 
 from bleak import BleakClient, BleakScanner
+from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
+from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 
 from .const import (
     CUSTOM_PROGRAM_MAX_STEPS,
@@ -54,9 +59,11 @@ from .protocol import (
 _LOGGER = logging.getLogger(__name__)
 
 
-DEFAULT_REQUEST_TIMEOUT = 2.0
+# The official app waits 10 s for a reply once the panel is identified.
+DEFAULT_REQUEST_TIMEOUT = 10.0
 DEFAULT_SCAN_TIMEOUT = 30.0
 DEFAULT_CONNECT_TIMEOUT = 30.0
+DEFAULT_CONNECT_ATTEMPTS = 3
 
 
 class VitamixError(RuntimeError):
@@ -100,14 +107,30 @@ class VitamixClient:
         slave: int = SLAVE_CPANEL,
         request_timeout: float = DEFAULT_REQUEST_TIMEOUT,
         connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
+        connect_attempts: int = DEFAULT_CONNECT_ATTEMPTS,
     ) -> None:
+        """Create a client.
+
+        Args:
+            ble_device: A discovered :class:`BLEDevice` (preferred; connects
+                with retries via ``bleak-retry-connector``) or an address.
+            connect_timeout: Timeout for address-only connections. With a
+                :class:`BLEDevice`, ``bleak-retry-connector`` sets the
+                per-attempt timeout.
+            connect_attempts: The connector's ``max_attempts``. It caps
+                timeouts and hard failures; the connector retries transient
+                errors (device not found, no free slot) up to its own limit.
+        """
         self._ble_device = ble_device
         self._slave = slave
         self._request_timeout = request_timeout
         self._connect_timeout = connect_timeout
+        self._connect_attempts = connect_attempts
         self._client: BleakClient | None = None
         self._lock = asyncio.Lock()
-        self._notifications: asyncio.Queue[bytes] = asyncio.Queue()
+        self._pending: asyncio.Future[bytes] | None = None
+        self._stale = False  # a request timed out; its reply may still arrive
+        self._generation = 0  # bumped per connection; older callbacks are ignored
 
     # -- construction ------------------------------------------------------
 
@@ -150,11 +173,33 @@ class VitamixClient:
         """Open the BLE connection and subscribe to notifications."""
         if self._client is not None and self._client.is_connected:
             return
-        self._client = BleakClient(self._ble_device, timeout=self._connect_timeout)
-        await self._client.__aenter__()
-        await self._client.start_notify(NOTIFY_CHARACTERISTIC_UUID, self._on_notify)
-        # Give the device a moment to settle before the first request.
-        await asyncio.sleep(0.1)
+        if isinstance(self._ble_device, BLEDevice):
+            self._client = await establish_connection(
+                BleakClientWithServiceCache,
+                self._ble_device,
+                self._ble_device.name or self._ble_device.address,
+                max_attempts=self._connect_attempts,
+            )
+        else:
+            self._client = BleakClient(self._ble_device, timeout=self._connect_timeout)
+            await self._client.connect()
+        self._stale = False
+        try:
+            self._generation += 1
+            generation = self._generation
+
+            def on_notify(characteristic: BleakGATTCharacteristic, data: bytearray) -> None:
+                if generation != self._generation:
+                    _LOGGER.debug("dropping notification from a previous connection")
+                    return
+                self._on_notify(characteristic, data)
+
+            await self._client.start_notify(NOTIFY_CHARACTERISTIC_UUID, on_notify)
+            # Give the device a moment to settle before the first request.
+            await asyncio.sleep(0.1)
+        except BaseException:
+            await self.disconnect()
+            raise
 
     async def disconnect(self) -> None:
         """Stop notifications and close the BLE connection."""
@@ -165,7 +210,7 @@ class VitamixClient:
                 # bleak best-effort; some backends raise on stop_notify after
                 # the device has already disconnected.
                 await self._client.stop_notify(NOTIFY_CHARACTERISTIC_UUID)
-            await self._client.__aexit__(None, None, None)
+            await self._client.disconnect()
         finally:
             self._client = None
 
@@ -177,9 +222,8 @@ class VitamixClient:
 
     async def read_registers(self, register: int, count: int = 1) -> list[int]:
         """Read ``count`` consecutive 16-bit registers starting at ``register``."""
-        client = self._require_client()
         request = encode_read(register, count, slave=self._slave)
-        response = await self._exchange(client, request)
+        response = await self._exchange(request)
         try:
             values, status = decode_read_response(response, count)
         except ReplyStatusError as exc:
@@ -208,9 +252,8 @@ class VitamixClient:
             VitamixWriteRejected: if the firmware returned a non-zero status
                 code (Modbus-style exception).
         """
-        client = self._require_client()
         request = encode_write(register, values, slave=self._slave)
-        response = await self._exchange(client, request)
+        response = await self._exchange(request)
         status = decode_write_response(response)
         if not status.ok:
             raise VitamixWriteRejectedError(status)
@@ -502,32 +545,38 @@ class VitamixClient:
             raise VitamixError("client is not connected")
         return self._client
 
-    async def _exchange(self, client: BleakClient, request: bytes) -> bytes:
+    async def _exchange(self, request: bytes, timeout: float | None = None) -> bytes:
         """Send one request and return its reply; one request at a time."""
         if request == DFU_MAGIC:
             raise VitamixError("refusing to send the firmware-update magic")
         async with self._lock:
-            self._drain_notifications()
-            await client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, request, response=True)
-            return await self._wait_notification()
-
-    def _on_notify(self, _handle: int, data: bytearray) -> None:
-        # Bleak calls this from a background task; queue.put_nowait is safe
-        # because the queue is unbounded.
-        self._notifications.put_nowait(bytes(data))
-
-    def _drain_notifications(self) -> None:
-        while True:
+            if self._stale:
+                await self.disconnect()
+                await self.connect()
+            client = self._require_client()
+            self._pending = asyncio.get_running_loop().create_future()
             try:
-                self._notifications.get_nowait()
-            except asyncio.QueueEmpty:
-                return
+                await client.write_gatt_char(WRITE_CHARACTERISTIC_UUID, request, response=True)
+                timeout = self._request_timeout if timeout is None else timeout
+                return await asyncio.wait_for(self._pending, timeout=timeout)
+            except TimeoutError as exc:
+                self._stale = True
+                raise VitamixTimeoutError(
+                    f"no response to {request.hex()} within {timeout}s"
+                ) from exc
+            except BaseException:
+                # Failed or cancelled after sending: the reply may still arrive.
+                self._stale = True
+                raise
+            finally:
+                self._pending = None
 
-    async def _wait_notification(self) -> bytes:
-        try:
-            return await asyncio.wait_for(self._notifications.get(), timeout=self._request_timeout)
-        except TimeoutError as exc:
-            raise VitamixTimeoutError(f"no response within {self._request_timeout}s") from exc
+    def _on_notify(self, _characteristic: BleakGATTCharacteristic, data: bytearray) -> None:
+        pending = self._pending
+        if pending is None or pending.done():
+            _LOGGER.debug("dropping unsolicited or late notification %s", bytes(data).hex())
+            return
+        pending.set_result(bytes(data))
 
 
 @asynccontextmanager
